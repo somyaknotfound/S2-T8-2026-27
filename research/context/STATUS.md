@@ -27,8 +27,23 @@
 | 3 (20–26 Oct) | `threshold` mode (s_min in Interest + bounded retry), its closed-form model; result 3 |
 | 4 (27 Oct–2 Nov) | Bandwidth limits + cross-traffic + Gilbert–Elliott loss, `delay-aware` mode; result 4; report |
 
+## Stage status
+| Stage | State | Evidence |
+|---|---|---|
+| S0 environment | **done** | ndnSIM 2.9 debug build installed, `ndn-simple` runs; template builds and runs `smoke-ndn-simple` (100 Data received) |
+| S1 design | **done** | `design_notes.md`: lookup in our strategy; substitute Data under the Interest's own name; no RED/CoDel for NDN (verified: the bundled RED example aborts) |
+| S2 reproduce | **done** | 120 runs, 104,000 requests: **24/24 cells within the 95% CI of the analytical value** (`research/results/stage2/analysis.md`, figure `submission/figures/stage2_delay.pdf`). Per-request placement at α=0.9, s=1: **14,522 ± 2,070 ms vs 80.6 ms** in the paper's model (180×, even with the 5000-attempt cap; 22% of requests censored) |
+
 ## Next action
-Week 1, step 1: run the `ndnsim-setup` agent.
+**Start S3 by following `research/context/stages/S3_threshold.md`** (code changes, model, grid, gate). Commands and pitfalls: `research/context/RUNBOOK.md`. Later stages: `stages/S4_congestion_loss.md`, then `stages/S5_report.md`.
+- S3, threshold mode:
+  - The Interest carries s_min (ApplicationParameters).
+  - A cache answers only if its best match ≥ s_min; the consumer's retries are bounded with an exclusion list.
+  - Add the closed-form threshold-mode delay to `build/retry_correlation_check.py`.
+  - Expected: the heavy tail disappears and α no longer matters.
+- Report note: for C = 100, s = 0.99 and s = 1.0 give identical results (similarity step = 1/99). Show s = 1.0 only, or say so.
 
 ## Log
 - 2026-10-05 — repo created; proposal, template, research context and agents pushed.
+- 2026-10-05 — moved to the Windows host (Docker Desktop, container `ndnsim`). S0 and S1 done; S2 code written and first validation matches the model.
+- 2026-10-05 — S2 sweep done: 24/24 cells match the analysis. Results 1 and 2 reproduced at packet level.

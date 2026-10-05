@@ -29,10 +29,15 @@ In ns-3 + ndnSIM:
 - `research/results/` — outputs: CSV plus a config/seed note per run.
 - ndnSIM itself lives OUTSIDE the repo, at `/root/ndnSIM` inside the container. Never commit it.
 - Current status and next steps: `research/context/STATUS.md`. Read it at the start of a session and update it at the end.
+- Exact commands and known pitfalls: `research/context/RUNBOOK.md`. Per-stage plans with code changes, grids and gates: `research/context/stages/S3_threshold.md`, `S4_congestion_loss.md`, `S5_report.md`.
 
 ## Environment
-Host: a Kali Linux VM running Claude Code and Antigravity. Kali is rolling Debian, and its gcc/Boost are too new for ndnSIM (docs list Ubuntu 20.04/21.10 only).
-**So ndnSIM builds and runs inside an `ubuntu:20.04` Docker container, with this repo mounted at `/work`:**
+Host: either Windows 11 with Docker Desktop (the main machine; the repo is in a OneDrive folder) or a Kali Linux VM. Both hosts are too new for ndnSIM (its docs list Ubuntu 20.04/21.10 only).
+**So ndnSIM always builds and runs inside an `ubuntu:20.04` Docker container, with this repo mounted at `/work`.**
+- Build outputs must stay inside the container, never on `/work`, because OneDrive would sync thousands of object files. ndnSIM lives at `/root/ndnSIM`. Configure the scenario with `./waf configure --out=/root/scenario-build`.
+- The repo uses LF line endings (`core.autocrlf=false`). Never commit CRLF shell scripts.
+- The full ndnSIM build is scripted: `build/env/setup_ndnsim.sh`. Run it detached, logging to `/root/build.log` (usage is in the script header). It takes 20–40 min.
+- On Windows, start the container from PowerShell in the repo root: `docker run -dit --name ndnsim -v "${PWD}:/work" -w /work ubuntu:20.04 bash`. From Git Bash, prefix docker commands with `MSYS_NO_PATHCONV=1`, or `/root/...` paths get rewritten to `C:/Program Files/Git/root/...`. On Kali, use:
 ```
 sudo apt install -y docker.io && sudo usermod -aG docker $USER      # once, then log out and back in
 docker run -dit --name ndnsim -v "$PWD":/work -w /work ubuntu:20.04 bash   # run from the repo root
