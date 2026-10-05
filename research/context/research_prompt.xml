@@ -1,0 +1,171 @@
+<research_request>
+
+  <role>
+    You are a senior networking researcher who supervises MTech and PhD students. Help two
+    third-year B.Tech CSE students frame a defensible research problem for a semester project.
+    Be critical and specific. Prefer depth to breadth. Never invent citations.
+  </role>
+
+  <project_context>
+    <course>CS301 Computer Networks, NIT Karnataka Surathkal, Semester V (Oct 2026)</course>
+    <guide>Prof. B. R. Chandavarkar, Dept. of CSE, NITK. He examines by application and
+      expects rigorous networking content. His published research areas are worth checking
+      (we believe they include underwater acoustic networks, which is relevant to UnetStack;
+      verify this).</guide>
+    <audience_for_defense>MTech and PhD students who will attack novelty, assumptions,
+      evaluation validity and tool choice.</audience_for_defense>
+    <deliverables>A progress-report-style paper (LaTeX, IEEE-style references), an
+      implementation, and an oral defense.</deliverables>
+    <hard_constraint>The implementation and evaluation MUST use exactly one of:
+      UnetStack, ns-3, or MATLAB. No other emulator or simulator is allowed.</hard_constraint>
+    <team_background>Last semester we built application-layer packet FEC (GF(256) Cauchy
+      codes) for 5G URLLC in Python, with Bernoulli, Gilbert-Elliott and MATLAB 5G Toolbox
+      nrTDLChannel channel models. So we are comfortable with MATLAB, Python, loss models
+      and Wireshark. We have not used ns-3 or UnetStack before.</team_background>
+  </project_context>
+
+  <base_paper>
+    <citation>R. Nakamura and N. Kamiyama, "Analysis of Similarity Caching on General Cache
+      Networks," IEEE Access, vol. 12, pp. 163338-163348, 2024,
+      doi:10.1109/ACCESS.2024.3489620.</citation>
+    <model>
+      Cache network G=(V,E) with cache nodes (capacity B) and origin nodes. A request for
+      content c travels a fixed path toward the origin (CCN/NDN request-response). At each
+      cache, with probability alpha, the node returns its most similar cached item
+      argmax s(c,c'); otherwise it forwards. The origin returns c exactly. The client accepts
+      if s(c,c') >= its threshold s; otherwise it waits delta and re-requests.
+      The metric is "similar-content delivery delay":
+        D = sum_s beta(s) * D^{s(>=)}, where D^{s(>=)} = sum_n Delta_n R_n,
+        Delta_n = (n-1)(d^{s(&lt;)} + delta) + d^{s(&gt;=)}, and R_n = (1-rho)^(n-1) rho.
+      Cache contents are modelled as a uniform random B-subset (combinatorial Eq. 3).
+    </model>
+    <evaluation>Numerical only. A tandem of 5 caches plus 1 origin, 1 ms links, B=10,
+      delta=10 ms, uniform popularity. Datasets: synthetic similarity from |a-b|^gamma
+      (C=100) and 788 Kaggle motorbike images (ORB features).</evaluation>
+    <their_findings>Delay rises with the required similarity. Large alpha helps
+      low-similarity users and hurts high-similarity users. Client position (distance to
+      origin) matters, and fairness across clients depends on alpha.</their_findings>
+    <their_future_work>Other topologies; a concrete network architecture; a smarter client
+      that fetches higher-similarity content instead of blindly retrying.</their_future_work>
+  </base_paper>
+
+  <our_verified_findings>
+    <finding id="F1">Eq. (6) as printed weights only the last-hop RTT by the probability that
+      node i serves. Expected delay needs the cumulative RTT. Their Fig. 5(a) matches the
+      cumulative version: we reproduced s=1 values of 9.96 / 45.97 / 80.6 ms for
+      alpha = 0.1 / 0.5 / 0.9, against roughly 10 / 50 / 87 in the paper. So it is a
+      typographical error.</finding>
+    <finding id="F2">Eq. (8) lets a request pass a node that served an unacceptable item,
+      which implies a threshold-aware cache. Eq. (10) stops the request whenever a node
+      answers, which implies a blind cache. The delay terms and the retry probability
+      therefore appear to model different systems.</finding>
+    <finding id="F3">The model treats retries as independent draws of cache contents. Real
+      caches keep their contents across a 10 ms retry. With persistent contents, on the
+      paper's own setup, mean delay is underestimated by about 2x at alpha=0.5 and by
+      64x-1700x at alpha=0.9. At alpha=0.9 and s=1, P(delay &gt; 1 s) = 0.65 and the worst
+      case is about 1000 s, because (1-alpha)^5 = 1e-5. The cause is Jensen's inequality:
+      E[1/rho] &gt;= 1/E[rho]. Caveat: churn from other users' requests sits between the two
+      extremes.</finding>
+    <finding id="F4">Other hidden assumptions: infinite bandwidth, no queueing and no loss;
+      one global alpha applied even to exact hits; popularity independent of similarity;
+      the client can judge similarity (false for LLM answers); free similarity lookup;
+      tandem topology only.</finding>
+  </our_verified_findings>
+
+  <candidate_directions note="Our current shortlist. Challenge it, merge it, or replace it.">
+    <ps id="PS1">Threshold-carrying requests (s_min in the request) and bounded-retry
+      variants (exclusion bitmap, hop escalation). Under threshold-aware requests, alpha=1
+      is delay-optimal.</ps>
+    <ps id="PS2">Congestion- and loss-aware similarity caching. Add queueing and burst loss
+      (Gilbert-Elliott) to the model. Approximation acts as a congestion valve. Hypothesis:
+      a good AQM reduces the optimal amount of approximation.</ps>
+    <ps id="PS3">A per-node, delay-optimal answer/forward rule: answer iff
+      s' &gt;= F^-1(1 - D_up / (delta + D_retry)). D_up is learned with TCP-style SRTT
+      estimation; F (the user acceptance CDF) is learned from retries as implicit NACKs.
+      Our current favourite.</ps>
+    <ps id="PS4">LSH-in-Bloom-filter digests for off-path cooperative similarity lookup on
+      general topologies.</ps>
+    <ps id="PS5">Privacy: timing and content leakage in similarity cache networks, with
+      alpha as a randomised-response knob.</ps>
+    <ps id="PS6">Hubness-based cache pollution and a rejection-feedback defense.</ps>
+    <ps id="PS7">DASH representation substitution: serve a cached different bitrate as the
+      "similar" item.</ps>
+    <ps id="PS8">Tiered semantic caching for LLM queries, allocating an error budget across
+      network tiers (Quora Question Pairs labels as ground truth). Closest prior work:
+      arXiv 2602.13165.</ps>
+  </candidate_directions>
+
+  <tasks>
+    <task id="T1" title="Literature, 2022-2026">
+      Survey active research on similarity, approximate and semantic caching: cache
+      networks, ICN/NDN, edge/MEC, LLM semantic caching, computation reuse, and security or
+      privacy of approximate caches. Include work on caching or ICN in UNDERWATER acoustic
+      networks and DTNs, and in vehicular or satellite networks (long-delay, lossy links,
+      where similarity caching may matter most). For each paper give: full citation with
+      DOI or arXiv ID, two lines on what it does, and the precise gap it leaves.
+    </task>
+    <task id="T2" title="Tool fit">
+      Evaluate UnetStack, ns-3 and MATLAB for this project. Address:
+      (a) existing support: ns-3's ndnSIM (Content Store policies, forwarding strategies,
+          current version and ns-3 compatibility) and the ns-3 UAN module; UnetStack's
+          agent architecture, simulator vs. real-modem modes, and available PHY/MAC/routing;
+          MATLAB's role (analysis, Monte Carlo, any toolboxes);
+      (b) how hard it is to implement similarity lookup in each, and where it would live
+          (for example, ndnSIM ContentStore::find, or a UnetStack agent);
+      (c) the measurements each makes credible (packet-level delay, queueing, loss,
+          energy);
+      (d) the learning curve for a two-person team within one semester;
+      (e) how each choice changes which problem statements make sense.
+      Recommend one tool, with reasons, and name the strongest objection to that choice.
+    </task>
+    <task id="T3" title="Underwater angle">
+      Assess whether similarity caching makes MORE sense in underwater acoustic networks.
+      Consider: ~1500 m/s propagation (seconds-scale RTT), kbps links, high loss,
+      energy-limited nodes, and sensor data that is naturally similar in space and time.
+      Then: how the base paper's delay model changes when tau is seconds and delta is
+      comparable to the RTT; what "similarity" means for sensor or AUV data; and whether
+      there is published work on approximate or semantic caching underwater. Propose 2-3
+      problem statements specific to this setting if it is promising.
+    </task>
+    <task id="T4" title="Problem statements">
+      Produce 5-8 refined problem statements, each tied to the chosen tool. For each, give:
+      the one-paragraph statement ("Given ..., design ..., and validate in &lt;tool&gt; ...");
+      the gap, traced to a specific base-paper equation, an assumption, or a cited paper;
+      the core mechanism or idea; the analysis or derivation we can do; the experiment
+      design (topology, parameters, workloads, baselines, metrics); the expected result as
+      a falsifiable hypothesis; a one-line novelty claim against the closest prior work;
+      the five hardest questions an MTech/PhD examiner would ask, with answers; and effort,
+      risk and fallback.
+    </task>
+    <task id="T5" title="Stress-test">
+      Critically re-check our findings F1-F3. Is any of them wrong, already known in the
+      literature, or weaker than we think? Then rank the problem statements on: novelty,
+      networking depth (fit for a networks professor), tool fit, theory content,
+      implementation effort, and defense strength.
+    </task>
+  </tasks>
+
+  <rules>
+    <rule>Cite only papers you are confident exist. Give DOI or arXiv ID. Mark anything
+      uncertain as [UNVERIFIED]. A wrong citation is worse than a missing one.</rule>
+    <rule>Separate facts (from papers or documentation) from your own reasoning or
+      speculation. Label speculation.</rule>
+    <rule>Be concrete: name equations, parameters, APIs, modules and metrics. Avoid generic
+      advice such as "use machine learning" or "consider scalability".</rule>
+    <rule>Scope for a one-semester, two-person project. Flag anything that would not fit.</rule>
+    <rule>If you disagree with our shortlist or our findings, say so plainly and explain
+      why.</rule>
+  </rules>
+
+  <output_format>
+    1. Executive summary (10 lines max): recommended tool + top 2 problem statements.
+    2. Tool comparison table, then the recommendation (T2).
+    3. Underwater assessment (T3).
+    4. Literature table grouped by theme (T1).
+    5. Refined problem statements (T4).
+    6. Stress-test and ranking table (T5).
+    7. Open questions for us to decide.
+    8. References in IEEE format with DOI or arXiv ID.
+  </output_format>
+
+</research_request>
