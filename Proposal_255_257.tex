@@ -1,0 +1,130 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{mathptmx}
+\usepackage[margin=2cm]{geometry}
+\usepackage{amsmath}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\hypersetup{colorlinks=false, pdfborder={0 0 0}}
+
+\title{\textbf{Threshold-Aware Similarity Caching for\\
+Named Data Networks:\\
+Bounding Retry Delay under Congestion using ns-3}}
+\author{Somyak Priyadarshi Mohanta (241CS257)\\
+Pranav Shaji (241CSXXX)\\
+Chris Tony (241CSXXX)\\
+\textbf{Department of Computer Science and Engineering}\\
+\textbf{National Institute of Technology, Karnataka}}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\section*{Abstract}
+
+\subsection*{Background}
+Content caching is one of the main techniques used to deliver content quickly and to reduce the
+traffic carried by a network. Content Delivery Networks, mobile edge caches and the in-network
+caches of Named Data Networking (NDN) all follow the same rule: a cache serves a request only when
+it holds the exact object that was asked for [1]. Similarity caching relaxes this rule. On a miss,
+the cache may return the most similar object it holds, which is useful for applications such as
+image retrieval, recommendation systems and semantic caching of large language model queries
+[2], [3]. The user accepts the returned object only if it is similar enough, and otherwise sends
+the request again.
+
+\subsection*{State-of-the-Art}
+Nakamura and Kamiyama recently analysed similarity caching on a general cache network and
+introduced the similar-content delivery delay, a user-level metric that includes the time spent on
+repeated requests [4]. In their model each cache answers with a fixed probability $\alpha$, and the
+network is assumed to have infinite bandwidth, no queuing and no packet loss. The results are
+obtained only through numerical evaluation on a tandem topology of five caches. Other studies
+consider a single similarity cache or optimise content placement in networks of similarity caches
+[2], [5], but none of them evaluates the request and retry behaviour at the packet level.
+
+\subsection*{Issues and Challenges}
+Several challenges exist in making similarity caching work in a real multi-hop network:
+\begin{itemize}
+  \item \textbf{Correlated Retries}: The analysis treats every retry as an independent draw of the
+  cache contents. In practice the contents do not change within the retry interval, so a user who
+  rejects an answer keeps receiving the same one. Re-evaluating the model on the same topology with
+  persistent cache contents, we found that the mean delay is underestimated by about two times at
+  $\alpha = 0.5$ and by more than sixty times at $\alpha = 0.9$.
+  \item \textbf{Blind Caches}: A cache does not know the similarity that the user will accept, so it
+  can return an object that is certain to be rejected.
+  \item \textbf{NDN Name Matching}: NDN delivers a Data packet only when its name matches the
+  Interest, so returning a different but similar object needs changes to the packet format and
+  the forwarder.
+  \item \textbf{Congestion and Loss}: The benefit of answering from a nearby cache depends on the
+  queuing delay and loss on the upstream path, which the existing model does not capture.
+\end{itemize}
+
+\subsection*{Objectives}
+This project aims to design and implement threshold-aware similarity caching for NDN and to
+evaluate it in ns-3 using the ndnSIM module [6]. The specific objectives are:
+\begin{enumerate}
+  \item Implement a similarity-based Content Store along with consumer and producer applications
+  in ndnSIM, and reproduce the results of the base paper on the same tandem topology.
+  \item Measure the retry delay of blind similarity caching when the cache contents persist across
+  requests, and compare it with the analytical model.
+  \item Design an Interest format that carries the minimum similarity accepted by the user and a
+  bound on the number of retries, so that a cache answers only when its best match is acceptable.
+  \item Design a forwarding strategy that chooses between answering locally and forwarding based on
+  the measured upstream delay, and evaluate it under link congestion and under burst packet loss.
+  \item Compare the proposed scheme with the base scheme in terms of mean and 95th percentile
+  delivery delay, delivered similarity, upstream traffic and fairness across clients.
+\end{enumerate}
+
+The project will show whether simple changes to the request format and to the decision rule at
+each cache can make similarity caching dependable in multi-hop networks, where a wrong answer from
+a nearby cache costs the user a complete retry.
+
+\subsection*{Methodology Overview}
+The proposed system architecture consists of:
+\begin{itemize}
+  \item ns-3 with the ndnSIM module as the simulation platform
+  \item Similarity-based Content Store replacing exact name lookup at each cache node
+  \item Consumer applications that check the similarity and retry, and a producer acting as the
+  origin server
+  \item Custom forwarding strategy implementing the answer-or-forward decision
+  \item Point-to-point links with configurable bandwidth, delay, queue size and burst loss
+  \item Python and MATLAB scripts comparing the simulation results with the analytical model
+\end{itemize}
+
+\section*{Team Details}
+\begin{itemize}
+  \item \textbf{Somyak Priyadarshi Mohanta} (241CS257) - Implementation lead, Content Store and
+  forwarding strategy, system architecture
+  \item \textbf{Pranav Shaji} (241CSXXX) - Consumer and producer applications, simulation scenarios
+  \item \textbf{Chris Tony} (241CSXXX) - Analytical model, performance analysis, documentation
+\end{itemize}
+
+\begin{thebibliography}{9}
+
+\bibitem{ndn}
+L. Zhang et al., ``Named Data Networking,'' \textit{ACM SIGCOMM Computer Communication Review},
+vol. 44, no. 3, pp. 66-73, 2014.
+
+\bibitem{neglia}
+G. Neglia, M. Garetto, and E. Leonardi, ``Similarity Caching: Theory and Algorithms,'' in
+\textit{IEEE/ACM Transactions on Networking}, vol. 30, no. 2, pp. 475-486, 2022.
+
+\bibitem{vcache}
+L. G. Schroeder et al., ``vCache: Verified Semantic Prompt Caching,'' arXiv:2502.03771, 2025.
+
+\bibitem{nakamura}
+R. Nakamura and N. Kamiyama, ``Analysis of Similarity Caching on General Cache Networks,'' in
+\textit{IEEE Access}, vol. 12, pp. 163338-163348, 2024.
+
+\bibitem{garetto}
+M. Garetto, E. Leonardi, and G. Neglia, ``Content Placement in Networks of Similarity Caches,''
+\textit{Computer Networks}, vol. 201, Art. no. 108570, 2021.
+
+\bibitem{ndnsim}
+S. Mastorakis, A. Afanasyev, and L. Zhang, ``On the Evolution of ndnSIM: an Open-Source Simulator
+for NDN Experimentation,'' \textit{ACM SIGCOMM Computer Communication Review}, vol. 47, no. 3,
+pp. 19-33, 2017.
+
+\end{thebibliography}
+
+\end{document}

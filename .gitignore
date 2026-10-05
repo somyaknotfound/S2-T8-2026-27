@@ -1,0 +1,10 @@
+# papers and the proposal must reach the VM (root .gitignore ignores *.pdf)
+!research/documents/*.pdf
+!Proposal_255_257.pdf
+
+build/scenario/build/
+build/scenario/.waf*
+build/scenario/.lock-waf*
+research/results/raw/
+__pycache__/
+*.pyc
