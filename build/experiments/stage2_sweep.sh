@@ -32,9 +32,10 @@ rm -f "$jobs_file"
 
 # merge: one header, then every run's rows
 merged="$RAW/all.csv"
-first=$(ls "$RAW"/a*_r*.csv | head -1)
-head -1 "$first" > "$merged"
-for f in "$RAW"/a*_r*.csv; do
+# a glob, not `ls | head`: head closing the pipe early kills ls with SIGPIPE under pipefail
+runs=("$RAW"/a*_r*.csv)
+head -1 "${runs[0]}" > "$merged"
+for f in "${runs[@]}"; do
   tail -n +2 "$f" >> "$merged"
 done
 echo "rows: $(($(wc -l < "$merged") - 1))"

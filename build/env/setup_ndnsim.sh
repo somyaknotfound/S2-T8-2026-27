@@ -4,6 +4,7 @@
 set -euo pipefail
 
 JOBS="${JOBS:-4}"
+PATCH_DIR="$(cd "$(dirname "$0")" && pwd)"
 export DEBIAN_FRONTEND=noninteractive
 
 apt-get update
@@ -15,6 +16,13 @@ cd /root/ndnSIM
 [ -d ns-3 ] || git clone https://github.com/named-data-ndnSIM/ns-3-dev.git ns-3
 [ -d pybindgen ] || git clone https://github.com/named-data-ndnSIM/pybindgen.git pybindgen
 [ -d ns-3/src/ndnSIM ] || git clone --recursive https://github.com/named-data-ndnSIM/ndnSIM.git ns-3/src/ndnSIM
+
+# ndn-cxx's ns-3 scheduler bridge leaks an ns-3 event whenever a new timer becomes the earliest,
+# so long runs slow down quadratically (design_notes, "ndn-cxx scheduler leak"). Apply once.
+cxx=ns-3/src/ndnSIM/ndn-cxx
+if ! git -C "$cxx" apply --reverse --check "$PATCH_DIR/ndn-cxx-scheduler-leak.patch" 2>/dev/null; then
+  git -C "$cxx" apply "$PATCH_DIR/ndn-cxx-scheduler-leak.patch"
+fi
 
 cd ns-3
 # debug profile: asserts + logging, for development (scenario: ./waf configure --debug)

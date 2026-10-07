@@ -3,7 +3,7 @@
 CS301 Computer Networks mini-project, NITK Surathkal (2026-27) — Team T8.
 Guide: Prof. B. R. Chandavarkar.
 
-Somyak Priyadarshi Mohanta (241CS257), Pranav Shaji, Chris Tony
+Somyak Priyadarshi Mohanta (241CS257), Pranav Shaji (241CS243), Chris Tony (241CS222)
 
 Base paper: R. Nakamura and N. Kamiyama, "Analysis of Similarity Caching on General Cache Networks,"
 IEEE Access, vol. 12, pp. 163338-163348, 2024.
@@ -17,7 +17,7 @@ IEEE Access, vol. 12, pp. 163338-163348, 2024.
 | `research/documents/` | Base paper, last semester's report and proposal |
 | `research/context/` | Problem statements, reviews, design notes, `STATUS.md` (current state) |
 | `research/results/` | Experiment outputs |
-| `Proposal_255_257.tex` | Project proposal |
+| `Proposal_222_243_257.tex` | Project proposal |
 
 ## Getting started
 

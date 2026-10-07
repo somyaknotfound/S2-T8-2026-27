@@ -3,7 +3,12 @@
 The paper's R_n = (1-rho)^(n-1) rho treats every retry as an independent draw of cache contents.
 Real caches keep their contents between retries (delta = 10 ms), so attempts are correlated and
 E[attempts] = E[1/rho_config] >= 1/E[rho_config]  (Jensen).  This script measures the gap.
+
+`--stage3` instead prints the Stage 3 expectations (blind, threshold, exclusion policies).
 """
+import sys
+from functools import lru_cache
+from itertools import product
 from math import comb
 
 import numpy as np
@@ -95,5 +100,100 @@ def main():
                   f"{model_cap:9.2f} {capped.mean():11.2f}")
 
 
+def acceptable_prob(c, s):
+    """P(a uniform random B-subset holds an item with similarity >= s to item c)."""
+    below = int((SIM[c] < s).sum())
+    return 1.0 - comb(below, B) / comb(C, B)
+
+
+def threshold_delay(hits, alpha):
+    """Threshold-carrying requests: cache i answers iff it holds an acceptable item and its
+    alpha-coin says so. Nothing is ever rejected, so there is no retry term (Eq. 8 made exact).
+    `hits[i]` = P(cache i on the path holds an acceptable item): a probability for random
+    placement, 0/1 for one fixed configuration."""
+    delay, reach = 0.0, 1.0
+    for i, hit in enumerate(hits):
+        q = alpha * hit
+        delay += 2 * TAU * i * reach * q
+        reach *= 1 - q
+    return delay + 2 * TAU * len(hits) * reach
+
+
+@lru_cache(maxsize=None)
+def exclusion_delay(hits, alpha, excluded=frozenset()):
+    """Blind caches, contents persisting across retries, and a retry that names the caches which
+    served rejected answers: those forward from then on, so a request takes at most len(hits) + 1
+    attempts. `hits` is a 0/1 tuple for one configuration."""
+    delay, reach = 0.0, 1.0
+    for i, hit in enumerate(hits):
+        if i in excluded:
+            continue
+        p = reach * alpha
+        delay += p * 2 * TAU * i
+        if not hit:
+            delay += p * (DELTA + exclusion_delay(hits, alpha, excluded | {i}))
+        reach *= 1 - alpha
+    return delay + reach * 2 * TAU * len(hits)
+
+
+def blind_delay(hits, alpha, cap=CAP):
+    """persistent_delay for a 0/1 hit pattern, extended to alpha = 1."""
+    m = len(hits)
+    ok, bad = [], []
+    for i, hit in enumerate(hits):
+        reach = (1 - alpha) ** i
+        ok.append((2 * TAU * i, reach * alpha * hit))
+        bad.append((2 * TAU * i, reach * alpha * (1 - hit)))
+    ok.append((2 * TAU * m, (1 - alpha) ** m))
+    if sum(p for _, p in ok) == 0:
+        # alpha = 1 and the client's own cache holds nothing acceptable: it rejects every 0 ms
+        # answer until the cap
+        return (cap - 1) * DELTA
+    return expected_delay(ok, bad, cap)
+
+
+def persistent_expectation(f, alpha, s):
+    """Exact mean of f over uniform clients, items and cache contents.
+
+    Caches are drawn independently, so for item c the flags "cache i holds an acceptable item"
+    are i.i.d. Bernoulli(acceptable_prob(c, s)), and every policy's delay depends on a
+    configuration only through those flags: enumerating them replaces sampling configurations.
+    """
+    total = 0.0
+    for c in range(C):
+        p = acceptable_prob(c, s)
+        for start in range(N_CACHES):
+            m = N_CACHES - start
+            for hits in product((0, 1), repeat=m):
+                k = sum(hits)
+                total += p ** k * (1 - p) ** (m - k) * f(hits, alpha)
+    return total / (C * N_CACHES)
+
+
+def stage3_table():
+    """(alpha, s) -> expected mean delay (ms) per policy, contents persisting across retries."""
+    table = {}
+    for alpha in (0.1, 0.5, 0.9, 1.0):
+        for s in (0.90, 0.95, 1.0):
+            closed = np.mean([threshold_delay([acceptable_prob(c, s)] * (N_CACHES - k), alpha)
+                              for c in range(C) for k in range(N_CACHES)])
+            table[(alpha, s)] = {
+                "blind": persistent_expectation(blind_delay, alpha, s),
+                "threshold": closed,
+                "threshold_persist": persistent_expectation(threshold_delay, alpha, s),
+                "exclusion": persistent_expectation(exclusion_delay, alpha, s),
+            }
+    return table
+
+
+def stage3_main():
+    print(f"{'alpha':>5} {'s':>5} | {'blind cap ms':>12} {'threshold ms':>12} "
+          f"{'thr persist ms':>14} {'exclusion ms':>12}")
+    for (alpha, s), row in stage3_table().items():
+        print(f"{alpha:5.1f} {s:5.2f} | {row['blind']:12.2f} {row['threshold']:12.4f} "
+              f"{row['threshold_persist']:14.4f} {row['exclusion']:12.4f}")
+
+
 if __name__ == "__main__":
-    main()
+    sys.stdout.reconfigure(newline="\n")  # LF even on Windows: the repo is LF-only
+    stage3_main() if "--stage3" in sys.argv[1:] else main()

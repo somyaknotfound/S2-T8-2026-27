@@ -61,6 +61,20 @@ For the report:
 - NDN's matching semantics are unchanged; the "similar answer" is application-level payload.
 - **Limitation:** the original producer's signature on the substitute isn't carried. We could embed the original Data's wire encoding if an examiner pushes on this.
 
+### As implemented in Stage 3 (5 Oct)
+- **ApplicationParameters worked, so no name-component fallback.** The text is `smin=<s>;excl=<node>,<node>` (`EncodeParams`/`ParseParams` in `sim-common.hpp`). It is set through the `ConstBufferPtr` overload, because the `(ptr, len)` overload is deprecated in this ndn-cxx (`interest.hpp:344-352`).
+  - The digest component makes the name six components long. The strategy's `sendData` assertion still holds, because `MakeAnswerData` uses the full Interest name.
+  - The exclusion list holds the node IDs that served rejected answers, not a hop bitmap.
+  - The retry bound stays the consumer's `--maxAttempts`; it is not on the wire.
+- **Blind Interests carry no parameters.** A blind cache never learns s, which is the paper's model. It also keeps blind Interests byte-identical to Stage 2.
+  - That matters because delays include serialisation at 1 Gbps (one hop = 2.000864 ms), so ~40 extra bytes would shift every delay by microseconds.
+  - Verified: `--policy=blind` replays three S2 runs (2,200 rows) identically on every S2 column.
+- **`ShouldAnswer` draws exactly one α-coin per call under every policy**, so the controller's RNG stream is consumed the same way regardless of policy.
+- **Cache and consumer share `Acceptable(similarity, sMin)`** (tolerance 1e-9). A threshold-mode answer is therefore never rejected, which is why there is exactly 1 attempt.
+- **`interest_hops` counts answered attempts only.** A timed-out attempt's reach is unknown. In S3 (no loss) nothing times out; S4 must revisit this.
+- **Analytical expectations are exact, not Monte Carlo.** Each cache is an independent uniform B-subset, so for item c the flags "cache i holds an item with similarity ≥ s" are i.i.d. Bernoulli(p_c). Every policy's delay depends on a configuration only through those flags, so `persistent_expectation` enumerates all 2^m patterns.
+  - For blind, the result matches S2's 800-configuration Monte Carlo within its noise (α=0.9, s=1: 13,718 vs 13,709 ms).
+
 ## Q3 — Can RED/CoDel act on NDN traffic?
 
 **Decision:** no. Congestion comes from the point-to-point device's drop-tail transmit queue, sized with `p2p.SetQueue("ns3::DropTailQueue<Packet>", "MaxSize", ...)` (`ndnSIM/utils/topology/annotated-topology-reader.cpp:352`). The report makes no AQM claims. **Stretch only:** a custom `ns3::Queue<Packet>` subclass implementing CoDel at the device level.
@@ -87,6 +101,27 @@ Evidence:
 - That is also the only path where a Data packet built in our translation unit is delivered straight to a local app face, through `AppLinkService::doSendData` → `data.shared_from_this()`. A layout or ABI mismatch for `ndn::Data` across the library boundary is the leading hypothesis. It is unconfirmed.
 
 **Decision:** run experiments on the debug build; parallel runs on 12 cores are fast enough. Revisit only if sweep time becomes a problem.
+
+## ndn-cxx scheduler leak — patched in ndnSIM (7 Oct)
+
+This is the only change made to ndnSIM itself. It lives in `build/env/ndn-cxx-scheduler-leak.patch`, and `setup_ndnsim.sh` applies it once after cloning.
+
+**Symptom:** the S3 sweep's heaviest runs (blind, α=1, s=1, ~900k attempts) were still going after 52 min of CPU each.
+- Measured scaling was super-linear: 10k / 20k / 40k / 80k attempts took 7.9 / 16.2 / 45.1 / 138.7 s.
+- gdb stack samples were almost all in ns-3's `MapScheduler` (`std::map` insert/erase), called from `ndn::scheduler::Scheduler::scheduleNext`.
+
+**Cause:** ndnSIM's port of the ndn-cxx scheduler (`ndn-cxx/ndn-cxx/util/scheduler.cpp`) leaks ns-3 events.
+- `schedule()` calls `scheduleNext()` whenever a new event becomes the earliest. `scheduleNext()` overwrites `m_timerEvent` with a new `ns3::Simulator::Schedule` without removing the old one. Real ndn-cxx uses an asio timer, whose `expires_from_now()` replaces the pending wait.
+- The orphaned event later fires `executeEvent()`, which finds nothing due and, on scope exit, reschedules itself for the current head. Orphans therefore never die, and each one fires once per timer expiry.
+- NFD creates a new earliest timer for every satisfied PIT entry (a 0 ms expiry), i.e. about once per attempt. Work per simulated second therefore grows with everything simulated before it.
+
+**Fix:** `scheduleNext()` first does `Simulator::Remove` on the pending `m_timerEvent`, as `cancelImpl()` already does.
+
+**Results are unaffected; only speed changes.** Callbacks always ran once, at the right time; the orphans only re-armed the timer.
+- 216 runs (all 72 S3 cells × 3 runs, 50-attempt cap) are byte-identical before and after the patch.
+- Three S2 runs (2,200 rows) still replay exactly, so S2 results stand as published.
+- 80k attempts now take 19.3 s instead of 138.7 s, with near-linear scaling.
+- The rebuilt scenario binary is byte-identical (md5 `0430bfc5…`), because ndnSIM links dynamically.
 
 ## Loss
 

@@ -1,0 +1,22 @@
+diff --git a/ndn-cxx/util/scheduler.cpp b/ndn-cxx/util/scheduler.cpp
+index dd257714..09650203 100644
+--- a/ndn-cxx/util/scheduler.cpp
++++ b/ndn-cxx/util/scheduler.cpp
+@@ -143,6 +143,17 @@ Scheduler::cancelAllEvents()
+ void
+ Scheduler::scheduleNext()
+ {
++  // Replace, don't add to, the pending ns-3 timer (asio's expires_from_now() replaces it too).
++  // Otherwise every event that becomes the new head leaks an ns-3 event, which later fires
++  // executeEvent() and reschedules itself: pending events grow without bound and run time
++  // grows quadratically with simulated activity.
++  if (m_timerEvent) {
++    if (!m_timerEvent->IsExpired()) {
++      ns3::Simulator::Remove(*m_timerEvent);
++    }
++    m_timerEvent.reset();
++  }
++
+   if (!m_queue.empty()) {
+     m_timerEvent = ns3::Simulator::Schedule(ns3::NanoSeconds((*m_queue.begin())->expiresFromNow().count()),
+                                             &Scheduler::executeEvent, this);

@@ -19,6 +19,7 @@ namespace ns3 {
 namespace simcache {
 
 class SimConsumer;
+struct RequestParams;
 
 // When cache contents are (re)drawn as a uniform random B-subset of the catalogue:
 //  PerAttempt - at every Interest arrival (the base paper's independence assumption)
@@ -26,12 +27,19 @@ class SimConsumer;
 //  Static     - once per run
 enum class Placement { PerAttempt, PerRequest, Static };
 
+// When a cache answers (each also needs a coin flip below alpha):
+//  Blind     - always (the base paper; the cache never learns the client's threshold)
+//  Threshold - only if its best match reaches the s_min carried in the Interest
+//  Exclusion - only if it has not already served this request a rejected answer
+enum class Policy { Blind, Threshold, Exclusion };
+
 struct SimConfig
 {
   uint32_t catalog = 100;
   uint32_t cacheSize = 10;
   double alpha = 0.5;
   double threshold = 1.0;
+  Policy policy = Policy::Blind;
   Placement placement = Placement::Static;
   uint32_t requests = 1000;
   uint32_t maxAttempts = 5000;
@@ -50,6 +58,7 @@ struct RequestRecord
   uint32_t timeouts = 0;
   double delayMs = 0;
   uint32_t servedNode = 0;
+  uint32_t interestHops = 0; // links climbed by all answered attempts
   double similarity = 0;
   bool censored = false;
 };
@@ -79,6 +88,9 @@ public:
   bool
   IsCache(uint32_t nodeId) const;
 
+  uint32_t
+  Position(uint32_t nodeId) const;
+
   double
   Similarity(uint32_t a, uint32_t b) const;
 
@@ -87,7 +99,7 @@ public:
   BestMatch(uint32_t nodeId, uint32_t item);
 
   bool
-  ShouldAnswer(uint32_t nodeId, double similarity);
+  ShouldAnswer(uint32_t nodeId, double similarity, const RequestParams& params);
 
   void
   Start(Time at);

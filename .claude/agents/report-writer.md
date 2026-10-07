@@ -15,7 +15,7 @@ Sources, in order of authority:
 3. `research/context/PROBLEM_STATEMENTS.md` and `external_review_1_ns3.md` — motivation and literature.
 4. `research/documents/report(last sem).pdf` — structure and tone reference.
 
-Voice: match last semester's report and `Proposal_255_257.tex`.
+Voice: match last semester's report and `Proposal_222_243_257.tex`.
 - Plain, direct sentences in the first person plural.
 - Concrete numbers; no hype words.
 - A short Pros/Cons after each related-work item.

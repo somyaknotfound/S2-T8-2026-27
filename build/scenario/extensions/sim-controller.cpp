@@ -1,6 +1,7 @@
 /* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
 
 #include "sim-controller.hpp"
+#include "sim-common.hpp"
 #include "sim-consumer.hpp"
 
 #include "ns3/log.h"
@@ -30,6 +31,20 @@ PlacementName(Placement placement)
   return "?";
 }
 
+static const char*
+PolicyName(Policy policy)
+{
+  switch (policy) {
+  case Policy::Blind:
+    return "blind";
+  case Policy::Threshold:
+    return "threshold";
+  case Policy::Exclusion:
+    return "exclusion";
+  }
+  return "?";
+}
+
 SimController&
 SimController::Get()
 {
@@ -46,9 +61,9 @@ SimController::Configure(const SimConfig& config)
 
   m_out.open(m_config.outFile);
   NS_ABORT_MSG_UNLESS(m_out.is_open(), "cannot open " << m_config.outFile);
-  m_out << "run,alpha,threshold,placement,catalog,cache_size,delta_ms,request,client_node,"
-           "client_pos,item,attempts,timeouts,delay_ms,served_node,served_hop,similarity,"
-           "censored\n";
+  m_out << "run,policy,alpha,threshold,placement,catalog,cache_size,delta_ms,request,"
+           "client_node,client_pos,item,attempts,timeouts,delay_ms,served_node,served_hop,"
+           "interest_hops,similarity,censored\n";
 }
 
 void
@@ -70,6 +85,12 @@ bool
 SimController::IsCache(uint32_t nodeId) const
 {
   return m_contents.count(nodeId) > 0;
+}
+
+uint32_t
+SimController::Position(uint32_t nodeId) const
+{
+  return m_position.at(nodeId);
 }
 
 double
@@ -114,10 +135,19 @@ SimController::BestMatch(uint32_t nodeId, uint32_t item)
 }
 
 bool
-SimController::ShouldAnswer(uint32_t /*nodeId*/, double /*similarity*/)
+SimController::ShouldAnswer(uint32_t nodeId, double similarity, const RequestParams& params)
 {
-  // blind policy of the base paper: answer with probability alpha, even on an exact hit
-  return m_rand->GetValue() < m_config.alpha;
+  // one draw per call under every policy, so blind runs replay Stage 2 draw for draw
+  bool coin = m_rand->GetValue() < m_config.alpha;
+  switch (m_config.policy) {
+  case Policy::Blind:
+    return coin; // the base paper: answer with probability alpha, even on an exact hit
+  case Policy::Threshold:
+    return coin && Acceptable(similarity, params.sMin);
+  case Policy::Exclusion:
+    return coin && !IsExcluded(params, nodeId);
+  }
+  return false;
 }
 
 void
@@ -166,12 +196,13 @@ SimController::WriteRecord(const RequestRecord& r)
   uint32_t clientPos = m_position.at(r.clientNode);
   int servedHop = static_cast<int>(m_position.at(r.servedNode)) - static_cast<int>(clientPos);
 
-  m_out << m_config.run << ',' << m_config.alpha << ',' << m_config.threshold << ','
-        << PlacementName(m_config.placement) << ',' << m_config.catalog << ','
-        << m_config.cacheSize << ',' << m_config.delta.GetMilliSeconds() << ',' << r.requestId
-        << ',' << r.clientNode << ',' << clientPos << ',' << r.item << ',' << r.attempts << ','
-        << r.timeouts << ',' << std::setprecision(10) << r.delayMs << ',' << r.servedNode << ','
-        << servedHop << ',' << r.similarity << ',' << (r.censored ? 1 : 0) << '\n';
+  m_out << m_config.run << ',' << PolicyName(m_config.policy) << ',' << m_config.alpha << ','
+        << m_config.threshold << ',' << PlacementName(m_config.placement) << ','
+        << m_config.catalog << ',' << m_config.cacheSize << ','
+        << m_config.delta.GetMilliSeconds() << ',' << r.requestId << ',' << r.clientNode << ','
+        << clientPos << ',' << r.item << ',' << r.attempts << ',' << r.timeouts << ','
+        << std::setprecision(10) << r.delayMs << ',' << r.servedNode << ',' << servedHop << ','
+        << r.interestHops << ',' << r.similarity << ',' << (r.censored ? 1 : 0) << '\n';
 }
 
 } // namespace simcache

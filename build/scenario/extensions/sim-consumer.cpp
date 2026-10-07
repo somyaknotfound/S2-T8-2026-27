@@ -41,6 +41,8 @@ SimConsumer::StartRequest(uint32_t requestId, uint32_t item)
   m_item = item;
   m_attempt = 0;
   m_timeouts = 0;
+  m_interestHops = 0;
+  m_excluded.clear();
   m_firstSend = Simulator::Now();
   SendAttempt();
 }
@@ -60,6 +62,12 @@ SimConsumer::SendAttempt()
   interest->setCanBePrefix(false);
   interest->setInterestLifetime(
     ::ndn::time::milliseconds(config.interestLifetime.GetMilliSeconds()));
+  // blind Interests stay byte-identical to Stage 2: a blind cache never learns the threshold
+  if (config.policy != Policy::Blind) {
+    std::string params = EncodeParams({config.threshold, m_excluded});
+    interest->setApplicationParameters(
+      std::make_shared<::ndn::Buffer>(params.begin(), params.end()));
+  }
 
   m_timeoutEvent = Simulator::Schedule(config.interestLifetime, &SimConsumer::OnTimeout, this);
 
@@ -83,11 +91,15 @@ SimConsumer::OnData(std::shared_ptr<const ::ndn::Data> data)
   Simulator::Cancel(m_timeoutEvent);
 
   Answer answer = ParseAnswer(*data);
-  const auto& config = SimController::Get().GetConfig();
-  // tolerance guards against the similarity's decimal round trip through the Data payload
-  if (answer.similarity >= config.threshold - 1e-9) {
+  auto& controller = SimController::Get();
+  const auto& config = controller.GetConfig();
+  m_interestHops += controller.Position(answer.node) - controller.Position(GetNode()->GetId());
+  if (Acceptable(answer.similarity, config.threshold)) {
     Finish(answer.node, answer.similarity, false);
     return;
+  }
+  if (config.policy == Policy::Exclusion) {
+    m_excluded.push_back(answer.node);
   }
   RetryOrGiveUp(answer.node, answer.similarity, config.delta);
 }
@@ -134,6 +146,7 @@ SimConsumer::Finish(uint32_t servedNode, double similarity, bool censored)
   record.timeouts = m_timeouts;
   record.delayMs = (Simulator::Now() - m_firstSend).GetSeconds() * 1000.0;
   record.servedNode = servedNode;
+  record.interestHops = m_interestHops;
   record.similarity = similarity;
   record.censored = censored;
   SimController::Get().OnRequestDone(record);

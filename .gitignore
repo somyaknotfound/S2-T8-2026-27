@@ -1,6 +1,6 @@
 # papers and the proposal must reach the VM (root .gitignore ignores *.pdf)
 !research/documents/*.pdf
-!Proposal_255_257.pdf
+!Proposal_222_243_257.pdf
 
 build/scenario/build/
 build/scenario/.waf3-*
