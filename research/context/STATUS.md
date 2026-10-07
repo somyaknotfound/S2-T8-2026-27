@@ -9,8 +9,10 @@
   1. Report figures redrawn from the committed summary CSVs (`research/results/stage*/summary.csv`, `stage4/nodes.csv`). They are plain LF CSVs, so `readtable` works directly.
   2. The closed-form models (S3 Eq. 8 threshold delay, exclusion recursion) as a MATLAB cross-check of `build/retry_correlation_check.py`.
   3. Time-series replay of the per-request and per-node traces (delay, D_up and s* as the run unfolds). Raw traces are gitignored, so regenerate them locally with the sweep scripts first.
-  - **Not installed** on the Windows host (checked 8 Oct). Use the NITK licence / MATLAB Online, or install before the CS302 MATLAB lab (19 Oct).
-  - Keep MATLAB code under `build/matlab/`.
+  - **Workflow: MATLAB Online** (not installed on the Windows host; this is how Somyak used it last time).
+    - Claude writes self-contained `.m` scripts in `build/matlab/`, each reading only CSVs that Somyak uploads to MATLAB Drive next to it. No repo paths, no toolboxes beyond base MATLAB unless he confirms access.
+    - He runs them online and pastes back the output or figures.
+    - Exported figures go to `submission/figures/` as before.
 - **Scope:** PS1 (threshold-carrying Interests + bounded retry) and PS2 (congestion/loss-aware answer-or-forward). See `PROBLEM_STATEMENTS.md` §6 and `external_review_1_ns3.md`.
 - **Deadlines (course manual):** proposal Thu 8 Oct 2026; progress report Thu 22 Oct; final report 2 Nov.
   - The manual says "Thursday" for 2 Nov, but 2 Nov 2026 is a Monday. Confirm with the guide.
