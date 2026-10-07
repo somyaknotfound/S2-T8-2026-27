@@ -1,6 +1,8 @@
 /* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
 // Client of the base paper: requests an item, accepts the answer only if its similarity reaches
 // the threshold, otherwise waits delta and re-requests. One request at a time.
+// Under the threshold and exclusion policies each attempt also carries s_min and the caches
+// that served rejected answers so far.
 
 #ifndef SIMCACHE_SIM_CONSUMER_HPP
 #define SIMCACHE_SIM_CONSUMER_HPP
@@ -10,6 +12,8 @@
 #include "ns3/event-id.h"
 #include "ns3/nstime.h"
 #include "ns3/random-variable-stream.h"
+
+#include <vector>
 
 namespace ns3 {
 namespace simcache {
@@ -51,6 +55,8 @@ private:
   uint32_t m_item = 0;
   uint32_t m_attempt = 0;
   uint32_t m_timeouts = 0;
+  uint32_t m_interestHops = 0;
+  std::vector<uint32_t> m_excluded;
   Time m_firstSend;
   EventId m_timeoutEvent;
 };

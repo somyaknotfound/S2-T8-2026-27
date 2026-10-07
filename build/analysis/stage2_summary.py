@@ -64,7 +64,7 @@ def summarise(cells, expected):
 def write_tables(summary):
     OUT.mkdir(parents=True, exist_ok=True)
     with (OUT / "summary.csv").open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=list(summary[0]))
+        writer = csv.DictWriter(f, fieldnames=list(summary[0]), lineterminator="\n")
         writer.writeheader()
         writer.writerows(summary)
 
@@ -81,7 +81,7 @@ def write_tables(summary):
             f"{r['p99_ms']:.1f} | {r['censored_share']:.3f} |")
     hits = sum(r["within_ci"] for r in summary)
     lines += ["", f"{hits} of {len(summary)} cells within the 95% CI of the expected value."]
-    (OUT / "analysis.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    (OUT / "analysis.md").write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
     print("\n".join(lines))
 
 

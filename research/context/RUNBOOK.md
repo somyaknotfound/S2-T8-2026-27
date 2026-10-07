@@ -23,10 +23,10 @@ docker exec ndnsim bash -c 'cd /work/build/scenario && ./waf configure --debug -
 
 ## Run
 ```bash
-docker exec ndnsim bash -c '/root/scenario-build/tandem --alpha=0.5 --threshold=1.0 --placement=per-request --requests=1000 --run=1 --out=/root/x.csv'
+docker exec ndnsim bash -c '/root/scenario-build/tandem --policy=threshold --alpha=0.5 --threshold=1.0 --placement=per-request --requests=1000 --run=1 --out=/root/x.csv'
 ```
-- Flags: `--alpha --threshold --placement=per-attempt|per-request|static --catalog --cacheSize --caches --requests --maxAttempts --deltaMs --linkDelayMs --linkRate --run --out`.
-- CSV columns: `run,alpha,threshold,placement,catalog,cache_size,delta_ms,request,client_node,client_pos,item,attempts,timeouts,delay_ms,served_node,served_hop,similarity,censored`.
+- Flags: `--policy=blind|threshold|exclusion --alpha --threshold --placement=per-attempt|per-request|static --catalog --cacheSize --caches --requests --maxAttempts --deltaMs --linkDelayMs --linkRate --run --out`. The default policy is `blind`, which replays Stage 2 exactly.
+- CSV columns: `run,policy,alpha,threshold,placement,catalog,cache_size,delta_ms,request,client_node,client_pos,item,attempts,timeouts,delay_ms,served_node,served_hop,interest_hops,similarity,censored`. `interest_hops` = links climbed by all answered attempts of the request.
 
 ## Sweeps and analysis
 - Sweep driver pattern: `build/experiments/stage2_sweep.sh`.
@@ -36,6 +36,11 @@ docker exec ndnsim bash -c '/root/scenario-build/tandem --alpha=0.5 --threshold=
   - Mean ± 95% CI is computed over **runs** (t-interval, 5 runs → t = 2.776), compared against the capped analytical value.
   - It writes `summary.csv` and `analysis.md` into `research/results/<stage>/` and figures into `submission/figures/`.
 - The analytical model is `build/retry_correlation_check.py`; it regenerates `research/results/retry_correlation.txt`. Its capped columns use `CAP = 5000`, the same as the simulator's `--maxAttempts`.
+- **Stage 3:**
+  - `build/experiments/stage3_sweep.sh` runs 360 runs in about 18 min with `JOBS=10`, on the patched ndnSIM. Blind cells with α ≥ 0.9 get 200 requests; at α=1, s=1 about 90% of blind requests run to the cap.
+  - `build/experiments/stage3_followup.sh` then adds runs 6–25 for every threshold and exclusion cell (960 runs, about 15 min). This is the gate-1 re-test.
+  - `python build/analysis/stage3_summary.py` imports the model directly.
+  - `python build/retry_correlation_check.py --stage3 > research/results/stage3/model.txt` regenerates the expectations table (exact, takes about 1 s).
 
 ## Pitfalls
 | Pitfall | Fix |
@@ -48,4 +53,7 @@ docker exec ndnsim bash -c '/root/scenario-build/tandem --alpha=0.5 --threshold=
 | For C=100, s=0.99 and s=1.0 are identical (similarity step = 1/99) | Report s=1.0 only, or state it |
 | The scenario template's `.waf-tools/` was once gitignored by a broad `.waf*` rule | `.gitignore` now ignores only `build/scenario/.waf3-*` |
 | Windows git drops the executable bit | `git update-index --chmod=+x build/scenario/waf build/env/*.sh build/experiments/*.sh` |
+| Long runs slow down quadratically: the ns-3 event map fills with orphaned ndn-cxx timer events | Fixed by `build/env/ndn-cxx-scheduler-leak.patch` (design_notes). A fresh container gets it from `setup_ndnsim.sh`; check with `git -C /root/ndnSIM/ns-3/src/ndnSIM/ndn-cxx diff --stat` |
+| gdb can't attach to a running process in the container (no `CAP_SYS_PTRACE`) | Launch the run under gdb and `kill -INT` it to sample stacks |
+| A kill loop matching `*sweep.sh*` killed its own shell (7 Oct, again) | Match `readlink /proc/PID/exe` only, never command text |
 | RED/CoDel queue discs never see NDN traffic (`NetDeviceTransport` calls `NetDevice::Send` directly) | Congestion = DropTail device queue size; make no AQM claims |

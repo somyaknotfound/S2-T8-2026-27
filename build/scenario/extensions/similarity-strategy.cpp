@@ -39,7 +39,7 @@ SimilarityStrategy::afterReceiveInterest(const Interest& interest, const FaceEnd
 
   auto item = static_cast<uint32_t>(name.at(1).toNumber());
   auto best = controller.BestMatch(nodeId, item);
-  if (!controller.ShouldAnswer(nodeId, best.second)) {
+  if (!controller.ShouldAnswer(nodeId, best.second, ns3::simcache::ParseParams(interest))) {
     BestRouteStrategy::afterReceiveInterest(interest, ingress, pitEntry);
     return;
   }

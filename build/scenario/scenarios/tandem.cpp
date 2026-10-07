@@ -5,7 +5,7 @@
 //      |         |              |
 //     v1 ------ v2 -- ... ---- vN ------ origin
 //
-// Run: ./waf --run "tandem --alpha=0.5 --threshold=0.95 --placement=per-attempt --run=1"
+// Run: ./waf --run "tandem --policy=threshold --alpha=0.5 --threshold=0.95 --run=1"
 
 #include "ns3/core-module.h"
 #include "ns3/network-module.h"
@@ -32,10 +32,24 @@ ParsePlacement(const std::string& value)
   return simcache::Placement::Static;
 }
 
+static simcache::Policy
+ParsePolicy(const std::string& value)
+{
+  if (value == "blind") {
+    return simcache::Policy::Blind;
+  }
+  if (value == "threshold") {
+    return simcache::Policy::Threshold;
+  }
+  NS_ABORT_MSG_UNLESS(value == "exclusion", "policy must be blind, threshold or exclusion");
+  return simcache::Policy::Exclusion;
+}
+
 int
 main(int argc, char* argv[])
 {
   simcache::SimConfig config;
+  std::string policy = "blind";
   std::string placement = "static";
   uint32_t caches = 5;
   double deltaMs = 10;
@@ -43,6 +57,7 @@ main(int argc, char* argv[])
   std::string linkRate = "1Gbps";
 
   CommandLine cmd;
+  cmd.AddValue("policy", "blind | threshold | exclusion", policy);
   cmd.AddValue("alpha", "probability that a cache answers with its best match", config.alpha);
   cmd.AddValue("threshold", "minimum similarity the client accepts", config.threshold);
   cmd.AddValue("placement", "per-attempt | per-request | static", placement);
@@ -59,6 +74,7 @@ main(int argc, char* argv[])
   cmd.AddValue("out", "CSV output file", config.outFile);
   cmd.Parse(argc, argv);
 
+  config.policy = ParsePolicy(policy);
   config.placement = ParsePlacement(placement);
   config.delta = MilliSeconds(deltaMs);
   RngSeedManager::SetSeed(1);

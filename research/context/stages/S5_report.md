@@ -5,19 +5,24 @@
 ## Files
 - **Report:** `submission/main.tex`. Its layout is cloned from last semester; the title page already says T8, ns-3 and the final title.
 - **Figures:** `submission/figures/*.pdf`, produced by `build/analysis/*.py`. Never edit figures by hand.
-- **Proposal (already submitted format):** `Proposal_255_257.tex`. Its 6 references are verified.
+- **Proposal (already submitted format):** `Proposal_222_243_257.tex`. Its 6 references are verified.
 - **Compile:** Overleaf (upload `submission/`) or `tectonic -X compile main.tex`. On Windows, Tectonic was downloaded to the session scratchpad and may be gone — re-download from GitHub releases if needed.
 
 ## Section map (main.tex → source of truth)
+**The structure is fixed by the course manual** (`research/context/COURSE_REQUIREMENTS.md`):
+- Progress report, due 22 Oct: Abstract, Introduction, Literature review, Proposed approach.
+- Final report, due 2 Nov: adds Implementation, Results and analysis, and Conclusions.
+- Page limits and line counts are in that file.
+
 | Section | Source |
 |---|---|
-| 1 Introduction, problem statement, objectives | `Proposal_255_257.tex`, `PROBLEM_STATEMENTS.md` §1 |
-| 2 Literature review | `PROBLEM_STATEMENTS.md` §3 (verified entries only) + `external_review_1_ns3.md` §2 |
-| 2.x Critical analysis of the base paper | `PROBLEM_STATEMENTS.md` §2.2 (Eq. 6 typo; Eq. 8 vs 10; independent retries / Jensen) |
-| 3 Methodology | `design_notes.md` (Q1–Q3, encapsulation, strategy) + `stages/S3`, `stages/S4` designs |
-| 3.x Engineering challenges | design_notes: template fixes, the RED example crashing, the optimized-build segfault investigation |
-| 4 Results | `research/results/stage2/analysis.md`, `stage3/`, `stage4/` + figures |
-| 5 Conclusion / limitations | No AQM for NDN; debug-build-only runs; synthetic similarity; tandem topology |
+| Abstract | the updated `Proposal_222_243_257.tex` paragraph |
+| 1 Introduction: background / challenges / existing approaches / problem statement / objectives / organisation (`\ref`, no hard-coded numbers) | `Proposal_222_243_257.tex`, `PROBLEM_STATEMENTS.md` §1 |
+| 2 Literature review: chronological, one subsection per approach with pros/cons and our own figures; last subsection compares them | `PROBLEM_STATEMENTS.md` §3 (verified entries only) + `external_review_1_ns3.md` §2; base-paper critique from §2.2 (Eq. 6 typo; Eq. 8 vs 10; independent retries / Jensen) |
+| 3 Proposed approach: diagram or algorithm plus justification | `stages/S3`, `stages/S4` designs; S3 closed forms |
+| 4 Implementation (final): class diagram + pseudocode | `design_notes.md` (Q1–Q3, encapsulation, strategy, the scheduler patch); `build/scenario/extensions/` |
+| 5 Results and analysis (final): parameters, scenarios, metrics, graphs, **comparison with the state of the art** | `research/results/stage2/`, `stage3/`, `stage4/` + figures |
+| 6 Conclusions and future work (≤ 250 words) | No AQM for NDN; debug-build-only runs; synthetic similarity; tandem topology |
 
 ## Rules
 - Every number in the report must trace back to a file in `research/results/`.

@@ -1,7 +1,7 @@
 ## Project
-CS301 Computer Networks mini-project (NITK, Prof. B. R. Chandavarkar), team T8: Somyak (241CS257), Pranav Shaji, Chris Tony.
+CS301 Computer Networks mini-project (NITK, Prof. B. R. Chandavarkar), team T8: Somyak (241CS257), Pranav Shaji (241CS243), Chris Tony (241CS222).
 **Threshold-Aware Similarity Caching for Named Data Networks: Bounding Retry Delay under Congestion using ns-3.**
-Base paper: Nakamura & Kamiyama, IEEE Access 2024 (`research/documents/`). Proposal: `Proposal_255_257.tex`.
+Base paper: Nakamura & Kamiyama, IEEE Access 2024 (`research/documents/`). Proposal: `Proposal_222_243_257.tex`.
 Deadline: about four weeks from 5 Oct 2026. Scope is fixed. Don't add features nobody asked for.
 
 ## What we are building

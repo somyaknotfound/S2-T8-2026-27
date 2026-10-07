@@ -1,0 +1,88 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{mathptmx}
+\usepackage[margin=2cm]{geometry}
+\usepackage{hyperref}
+\hypersetup{colorlinks=false, pdfborder={0 0 0}}
+\usepackage{titling}
+\setlength{\droptitle}{-2.5cm}
+\pretitle{\begin{center}\Large}
+\posttitle{\par\end{center}\vspace{-0.5em}}
+\postauthor{\end{tabular}\par\end{center}\vspace{-0.5em}}
+\postdate{\par\end{center}\vspace{-1.5em}}
+
+\title{\textbf{Threshold-Aware Similarity Caching for\\
+Named Data Networks:\\
+Bounding Retry Delay under Congestion using ns-3}}
+\author{Somyak Priyadarshi Mohanta (241CS257)\\
+Pranav Shaji (241CS243)\\
+Chris Tony (241CS222)\\
+\textbf{Department of Computer Science and Engineering}\\
+\textbf{National Institute of Technology Karnataka, Surathkal}}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\section*{Abstract}
+Named Data Networking (NDN) lets every router cache the Data packets it forwards, but, like any
+cache, it answers a request only with the exact object that was named \cite{ndn}. Similarity
+caching relaxes this rule: on a miss, a cache may return the most similar object it holds, which
+suits image retrieval, recommendation and semantic caching of large language model queries
+\cite{neglia}, \cite{vcache}. The user accepts the answer only if it is similar enough, and
+otherwise requests again. Making this work in a multi-hop network is difficult for four reasons: a
+cache does not know the similarity the user will accept, so it may send an answer certain to be
+rejected; NDN delivers Data only under the name of the pending Interest, so a substitute object
+cannot be returned as is; cache contents do not change within a retry interval, so a rejected user
+keeps getting the same answer; and the value of a nearby answer depends on upstream queueing and
+loss. Nakamura and Kamiyama \cite{nakamura} model the similar-content delivery delay on general
+cache networks, but assume a fixed answer probability $\alpha$, lossless links of infinite
+bandwidth and retries that redraw cache contents independently, with numerical results only.
+Keeping contents fixed across retries on their topology, we find their model underestimates the
+mean delay up to 2.1 times at $\alpha = 0.5$ and up to 1700 times at $\alpha = 0.9$; other studies
+treat a single cache \cite{neglia} or offline placement \cite{garetto}, not packet-level retries.
+We therefore
+propose threshold-aware similarity caching for NDN, in which Interests carry the user's minimum
+acceptable similarity and caches answer or forward based on the measured upstream delay. The
+objectives are: (i) to implement similarity caching with consumer retries in ns-3 using ndnSIM
+\cite{ndnsim}, reproduce the base paper on its tandem topology and measure the delay when cache
+contents persist across retries; (ii) to design threshold-carrying Interests with bounded retries
+and derive their delay in closed form; and (iii) to design a congestion- and loss-aware
+answer-or-forward rule and compare it with fixed-$\alpha$ caching under bottleneck links and burst
+loss on mean and 95th-percentile delay, delivered similarity and upstream traffic.
+
+\vspace{-0.8em}
+{\small
+\begin{thebibliography}{9}
+\setlength{\itemsep}{1pt}
+
+\bibitem{ndn}
+L. Zhang \textit{et al.}, ``Named data networking,'' \textit{ACM SIGCOMM Comput. Commun. Rev.},
+vol.~44, no.~3, pp.~66--73, 2014.
+
+\bibitem{neglia}
+G. Neglia, M. Garetto, and E. Leonardi, ``Similarity caching: Theory and algorithms,''
+\textit{IEEE/ACM Trans. Netw.}, vol.~30, no.~2, pp.~475--486, 2022.
+
+\bibitem{vcache}
+L. G. Schroeder \textit{et al.}, ``vCache: Verified semantic prompt caching,'' arXiv:2502.03771,
+2025.
+
+\bibitem{nakamura}
+R. Nakamura and N. Kamiyama, ``Analysis of similarity caching on general cache networks,''
+\textit{IEEE Access}, vol.~12, pp.~163338--163348, 2024.
+
+\bibitem{garetto}
+M. Garetto, E. Leonardi, and G. Neglia, ``Content placement in networks of similarity caches,''
+\textit{Comput. Netw.}, vol.~201, Art. no.~108570, 2021.
+
+\bibitem{ndnsim}
+S. Mastorakis, A. Afanasyev, and L. Zhang, ``On the evolution of ndnSIM: An open-source simulator
+for NDN experimentation,'' \textit{ACM SIGCOMM Comput. Commun. Rev.}, vol.~47, no.~3,
+pp.~19--33, 2017.
+
+\end{thebibliography}
+}
+
+\end{document}
