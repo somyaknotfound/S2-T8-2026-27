@@ -5,7 +5,7 @@
 - **Topic:** *Threshold-Aware Similarity Caching for Named Data Networks: Bounding Retry Delay under Congestion using ns-3.*
   Spreadsheet title: *Threshold-Aware Similarity Caching with Bounded Retries for Named Data Networks.*
 - **Tool:** ns-3 + ndnSIM; Python/MATLAB for analysis. The course only allows UnetStack, ns-3 or MATLAB; NeST was dropped on 5 Oct.
-- **MATLAB is part of the stack** (the team sheet lists "NS3/MATLAB/ndnSIM"). Somyak expects to need it later for plots and for simulating or replaying real-time data. Planned uses, none started yet:
+- **MATLAB is part of the stack** (the team sheet lists "NS3/MATLAB/ndnSIM"). Somyak expects to need it later for plots and for simulating or replaying real-time data. Planned uses (1 and 2 written on 8 Oct, not run yet; 3 not started):
   1. Report figures redrawn from the committed summary CSVs (`research/results/stage*/summary.csv`, `stage4/nodes.csv`). They are plain LF CSVs, so `readtable` works directly.
   2. The closed-form models (S3 Eq. 8 threshold delay, exclusion recursion) as a MATLAB cross-check of `build/retry_correlation_check.py`.
   3. Time-series replay of the per-request and per-node traces (delay, D_up and s* as the run unfolds). Raw traces are gitignored, so regenerate them locally with the sweep scripts first.
@@ -88,8 +88,16 @@
 - **Learning cost:** the learner's rejections per request rise with load, 0.13 → 0.50, because answering more is the point. The oracle has 0.
 
 ## Next action
-1. **Progress report, due Thu 22 Oct** (`submission/main.tex`): Abstract, Introduction, Literature review, Proposed approach, following `COURSE_REQUIREMENTS.md` and `stages/S5_report.md`. The team writes it; Claude reviews and checks every number against `research/results/`.
-2. **S5 (final report, 2 Nov):** Implementation (class diagram + pseudocode) and Results; the material is in design_notes, `results/stage2–4` and the figures.
+1. **Progress report, due Thu 22 Oct** (`submission/main.tex`): **drafted on 8 Oct; the team reviews it.**
+   - Contents: Abstract, Introduction (6 subsections, `\ref`-only organisation paragraph), Literature review (8 approaches 2008–2025 in date order, pros/cons, own TikZ timeline, comparison table), Proposed approach (TikZ system figure, the four rules with Eqs., Algorithm 1, justification).
+   - Tectonic build: intro 2.00 pages, lit review 3.00, approach 2.00 (limits 2/3/2). No undefined refs; 19 references, all cited, in first-citation order.
+   - Every number has a `%` source comment. All 19 references were verified against Crossref/arXiv on 8 Oct.
+   - Stage 2 is reported as "all 18 distinct configurations", not 24/24: the 24 cells count s = 0.99 and s = 1.0 twice.
+2. **MATLAB (MATLAB Online):** `build/matlab/delay_models.m` and `build/matlab/report_figures.m` are written but **not run yet**.
+   - Upload `stage2_summary.csv`, `stage3_summary.csv`, `stage4_summary.csv` and `stage4_nodes.csv` (renamed from `research/results/stage*/`), then run both scripts.
+   - Save the pasted output of `delay_models` as `research/results/matlab/model_check.txt`; copy `matlab_figures/*` to `submission/figures/matlab/`.
+   - Expected from the Python model: exact (not Monte Carlo) persistent ratios of 2.13× at α = 0.5 and 1705.7× at α = 0.9, s = 1.
+3. **S5 (final report, 2 Nov):** Implementation (class diagram + pseudocode) and Results; the material is in design_notes, `results/stage2–4` and the figures (MATLAB versions once they exist).
 - Report note: for C = 100, s = 0.99 and s = 1.0 give identical results (similarity step = 1/99). Show s = 1.0 only, or say so.
 - Report note: S4 runs one topology and a synthetic catalogue. Name these limitations in the conclusions.
 
@@ -106,3 +114,5 @@
   - Found that ndnSIM's NFD never calls `afterReceiveData`.
   - Added isotonic F and confidence-based exploration.
   - Sweep: 485 runs, all gates pass.
+- 2026-10-08 — Progress report drafted in `submission/main.tex` within the page limits, with 19 verified references.
+- 2026-10-08 — MATLAB scripts written (`build/matlab/`); they are waiting for a MATLAB Online run.

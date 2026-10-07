@@ -1,14 +1,15 @@
 % CS301 Computer Networks -- Mini-Project Progress Report
-% Layout cloned from the CS255 FEC report (Sem IV). Edit the macros below first.
+% Layout cloned from the CS255 FEC report (Sem IV).
+% Every number in the text traces to research/results/; the source is noted in a % comment.
 \documentclass[11pt,a4paper]{article}
 
 % ---------------------------------------------------------------- report metadata
 \newcommand{\CourseLine}{CS301 --- Computer Networks}
-\newcommand{\ReportLine}{Mini-Project Progress Report -- I}
-\newcommand{\HeaderLeft}{CS301 Mini-Project Progress Report -- I}
+\newcommand{\ReportLine}{Mini-Project Progress Report}
+\newcommand{\HeaderLeft}{CS301 Mini-Project Progress Report}
 \newcommand{\HeaderRight}{Team T8 \textbar{} 241CS222, 241CS243, 241CS257}
-\newcommand{\RepoName}{somyaknotfound/cn\_project}
-\newcommand{\RepoURL}{https://github.com/somyaknotfound/cn_project}
+\newcommand{\RepoName}{somyaknotfound/S2-T8-2026-27}
+\newcommand{\RepoURL}{https://github.com/somyaknotfound/S2-T8-2026-27}
 
 % ---------------------------------------------------------------- packages
 \usepackage[utf8]{inputenc}
@@ -19,7 +20,6 @@
 \usepackage{graphicx}
 \usepackage{booktabs}
 \usepackage{array}
-\usepackage{multirow}
 \usepackage{tabularx}
 \usepackage[table]{xcolor}
 \usepackage{enumitem}
@@ -31,7 +31,6 @@
 \usepackage{algpseudocode}
 \usepackage{tikz}
 \usetikzlibrary{positioning,arrows.meta,shapes.geometric,fit,calc}
-\usepackage{dirtree}
 \usepackage{hyperref}
 
 \hypersetup{
@@ -74,8 +73,8 @@
 % ---------------------------------------------------------------- house macros
 \newcommand{\pros}{\textcolor{green!50!black}{\textbf{Pros:}}~}
 \newcommand{\cons}{\textcolor{red!70!black}{\textbf{Cons:}}~}
-\newcommand{\todo}[1]{\textcolor{red}{\textbf{[TODO: #1]}}}
 \newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\Dup}{\hat{D}_{\mathrm{up}}}
 
 % pastel boxes used in every TikZ figure
 \tikzset{
@@ -142,17 +141,37 @@ under Congestion using ns-3\par}
 % ================================================================ ABSTRACT
 \setcounter{page}{1}
 \begin{abstract}
-\setlength{\parindent}{1.5em}
-\noindent\todo{Paragraph 1: context --- content caching, similarity caching, and why the
-user-perceived delay of serving an \emph{approximate} answer from a nearby cache matters.}
-
-\todo{Paragraph 2: the gap left by the base paper and the proposed solution, the ns-3/ndnSIM
-topology, workloads, and the headline numbers.}
+Named Data Networking (NDN) lets every router cache the Data packets it forwards, but a cache
+answers only with the exact object that was named~\cite{zhang2014ndn}. Similarity caching relaxes
+this rule: on a miss, a cache may return the most similar object it holds, which suits image
+retrieval, recommendation and the semantic caching of large language model
+queries~\cite{neglia2022similarity,schroeder2025vcache}. The user accepts the answer only if it is
+similar enough, and otherwise asks again. In a multi-hop network this raises four problems: a cache
+does not know the similarity the user will accept; NDN returns Data only under the name of the
+pending Interest; cache contents do not change between retries, so a rejected user keeps getting
+the same answer; and the value of a nearby answer depends on queueing and loss upstream. Nakamura
+and Kamiyama~\cite{nakamura2024analysis} model the delivery delay on general cache networks, but
+assume one fixed answer probability $\alpha$, lossless links of infinite bandwidth and retries that
+redraw cache contents independently. We propose threshold-aware similarity caching for NDN,
+implemented in ns-3 with ndnSIM~\cite{mastorakis2017ndnsim}. Interests either carry the user's
+minimum similarity or name the caches whose answers were rejected, and a delay-aware cache answers
+or forwards by weighing the expected cost of a rejection against its measured upstream delay. The
+objectives are (i) to reproduce the base paper at packet level and measure the delay when contents
+persist across retries, (ii) to bound retries with threshold-carrying and exclusion Interests and
+derive their delay in closed form, and (iii) to design a congestion- and loss-aware answer-or-forward
+rule and compare it with fixed-$\alpha$ caching. So far, the simulator agrees with the analytical
+model in all 18 configurations of the base paper's setting. With persistent contents at
+$\alpha = 0.9$, the mean delay rises from 80.6~ms to 14.5~s. Threshold-carrying Interests remove
+this tail (4.84~ms, one attempt). Under backhaul congestion and burst loss, the delay-aware rule
+beats the best fixed $\alpha$ at every operating point, by 2.8 to 20.8~ms.
+% 18 configs + 80.6 ms / 14.5 s: research/results/stage2/analysis.md (24 cells; s = 0.99 and 1.0
+% coincide for C = 100). 4.84 ms: stage3/summary.csv (threshold, 0.9, 1.0, per-request).
+% 2.8-20.8 ms: stage4/analysis.md (load -2.76 ... -7.02, loss -5.79 ... -20.77 ms).
 \end{abstract}
 
 \vspace{1em}
-\noindent\textbf{Keywords:} Similarity Caching, Cache Networks, Information-Centric
-Networking, Content Delivery, Network Simulation, ns-3, ndnSIM, \todo{more}.
+\noindent\textbf{Keywords:} Similarity Caching, Named Data Networking, Information-Centric
+Networking, Retry Delay, Congestion, Burst Loss, ns-3, ndnSIM.
 
 \newpage
 % ================================================================ CONTENTS
@@ -160,270 +179,453 @@ Networking, Content Delivery, Network Simulation, ns-3, ndnSIM, \todo{more}.
 \newpage
 
 % ================================================================ 1 INTRODUCTION
-\section{Introduction}
+\section{Introduction}\label{sec:intro}
 
-Content caching places copies of popular objects close to users so that requests are served
-in fewer hops, with lower delay and less upstream traffic. Content Delivery Networks (CDN),
-Mobile Edge Computing (MEC) caches and the router caches of Information-Centric Networking
-(CCN/NDN) all apply this principle~\cite{jacobson2009ccn,zhang2014ndn}. In each of them a
-cache answers a request only on an \emph{exact} match of the content identifier.
+\subsection{Background}
+Caching places copies of popular objects close to users, so that requests are served in fewer hops,
+with lower delay and less traffic on the upstream links. Information-Centric Networking makes
+caching a function of the network itself. In Content-Centric Networking~\cite{jacobson2009ccn} and
+its successor, Named Data Networking (NDN)~\cite{zhang2014ndn}, a consumer sends an Interest packet
+that names the data it wants. Any router on the path may answer from its Content Store, and the Data
+packet returns along the reverse path, where each router may keep a copy. Many caching and
+placement methods have been designed for NDN routers~\cite{chaudhary2026ndncaching}, and they share
+one rule: a cache answers only when it holds the exact object named in the Interest. Similarity
+caching relaxes this rule. On a miss, a cache may return the stored object most similar to the
+request, trading some accuracy for a shorter path. The idea first appeared in metric caches for
+content-based image search~\cite{falchi2008metric} and in nearest-neighbour caches for contextual
+advertising~\cite{pandey2009nn}. It has since been studied as a general caching problem, with uses
+in multimedia retrieval, recommender systems and the serving of machine-learning
+models~\cite{neglia2022similarity}. Its most active use today is the semantic caching of large
+language model (LLM) queries, where a stored answer to a semantically similar prompt replaces a
+costly inference~\cite{bang2023gptcache,gill2025meancache,schroeder2025vcache}. In all these
+systems the user, or the application acting for the user, checks whether the answer is similar
+enough, and asks again if it is not. What the user experiences is therefore not the hit ratio of
+one cache, but the delay until an acceptable answer arrives.
 
-\emph{Similarity caching}~\cite{falchi2008metric,pandey2009nn} relaxes that rule: on a miss the
-cache may return the cached object most similar to the request, trading exactness for
-delay~\cite{neglia2022similarity}. Table~\ref{tab:demo} contrasts the two.
+\subsection{Challenges and Issues}
+Moving similarity caching from a single server into a multi-hop network raises four issues. First,
+a cache does not know how similar an answer must be. If it answers blindly, as in the model of
+Nakamura and Kamiyama~\cite{nakamura2024analysis}, an answer the user is sure to reject still costs
+a round trip and a retry interval $\delta$, and the retry may be answered the same way. Second,
+cache contents do not change in the few milliseconds between two attempts. A user whose nearby
+caches hold only unacceptable objects keeps receiving the same rejected answers, so the attempts
+are correlated, not independent. In the base paper's own setting, this correlation raises the mean
+delay up to 2.1 times at $\alpha = 0.5$ and up to about 1700 times at $\alpha = 0.9$, compared with
+the model's prediction.
+% research/results/retry_correlation.txt: ratio 2.13 (alpha 0.5) and 1701.67 (alpha 0.9), Monte
+% Carlo over 800 configurations; exact enumeration gives 2.13 and 1705.7 (build/matlab/delay_models.m).
+Third, NDN delivers a Data packet only if its name matches the pending Interest~\cite{zhang2014ndn},
+so a cache cannot return a substitute object under that object's own name; the substitute must
+travel in a form the forwarders accept. Fourth, the value of a nearby but approximate answer
+depends on the path upstream. When the backhaul is congested or loses packets in
+bursts~\cite{gilbert1960capacity,elliott1963estimates}, forwarding is slow and a local answer is
+worth more; when the upstream is idle, forwarding is cheap and an approximate answer is rarely worth
+the risk of rejection. A cache must therefore estimate its upstream delay online, as TCP does for
+its retransmission timer~\cite{jacobson1988congestion,paxson2011rfc6298}. The best answer
+probability then changes with load and with the cache's position on the path. All four effects
+show only at the packet level, which needs a similarity Content Store and a new forwarding
+strategy inside an NDN simulator~\cite{mastorakis2017ndnsim}.
 
-\begin{table}[H]
-\centering
-\caption{Exact Caching vs.\ Similarity Caching}
-\label{tab:demo}
-\begin{tabular}{@{}lcc@{}}
-\toprule
-\textbf{Property} & \textbf{Exact Caching} & \textbf{Similarity Caching} \\
-\midrule
-Response on hit   & Requested object & Requested object \\
-Response on miss  & Forward upstream & Most similar cached object (or forward) \\
-Answer quality    & Always exact     & Similarity $s \in [0,1]$ \\
-Key metric        & Hit ratio        & Delay \emph{and} similarity \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\subsection{Motivation}
-\todo{Why the user-level delay of similarity caching must be measured on a real packet
-network, not only computed in closed form.}
+\subsection{Existing Approaches and Their Issues}
+Most work on similarity caching studies one cache: what it should store and how often it hits.
+This includes metric caches for search~\cite{falchi2008metric}, nearest-neighbour
+caching~\cite{pandey2009nn}, the theory and dynamic policies of Neglia et
+al.~\cite{neglia2022similarity}, online policies with approximate indexes~\cite{sisalem2023acai},
+hit-rate models based on time-to-live (TTL) approximations~\cite{benmazziane2024ttl} and learned
+per-prompt thresholds for LLM caches~\cite{schroeder2025vcache}. Network approaches place content
+across several similarity caches~\cite{garetto2021placement} or learn cooperative policies at edge
+nodes~\cite{wang2025bandit}. They optimise a cost, offline or online, but do not model users who
+reject an answer and retry. The only model of the user-level delay over a path of caches is that of
+Nakamura and Kamiyama~\cite{nakamura2024analysis}. It fixes one answer probability $\alpha$ at every
+cache, assumes lossless links of infinite bandwidth, treats each retry as an independent draw of
+cache contents, and is evaluated numerically only. None of these approaches tells a cache whether to
+answer approximately or forward, given the user's tolerance and the current state of the upstream
+path. None is evaluated in a packet-level network simulator.
 
 \subsection{Problem Statement}
-\todo{One paragraph, written last-sem style: ``Given \ldots, design and implement \ldots, and
-validate in ns-3.''}
+Given a Named Data Network of similarity caches whose users accept an answer only above their own
+similarity threshold, and whose upstream links may be congested and lossy, design the request
+signalling and a per-cache answer-or-forward rule that bound the number of retries and minimise the
+mean delay until an acceptable answer arrives. Derive this delay in closed form where possible, and
+validate the design at packet level in ns-3 with ndnSIM.
 
 \subsection{Objectives}
 \begin{enumerate}[label=\textbf{O\arabic*.}]
-  \item \todo{Reproduce the base-paper analysis and validate it in ns-3/ndnSIM.}
-  \item \todo{Design the proposed mechanism.}
-  \item \todo{Evaluate across topologies, workloads and link conditions.}
+  \item Implement similarity caching with consumer retries in ns-3/ndnSIM, reproduce the base
+        paper's delay model on its tandem topology, and measure the delay when cache contents
+        persist across retries.
+  \item Design threshold-carrying and exclusion Interests that bound retries, and derive their
+        delay in closed form.
+  \item Design a delay-aware answer-or-forward rule that learns user acceptance and upstream delay
+        online, and compare it with fixed-$\alpha$ caching under backhaul congestion and burst loss,
+        on mean and tail delay, delivered similarity and upstream traffic.
 \end{enumerate}
 
 \subsection{Organisation of the Report}
-Section~\ref{sec:lit} reviews related work. Section~\ref{sec:method} describes the proposed
-methodology. Section~\ref{sec:results} presents experimental results.
-Section~\ref{sec:conc} concludes with future work.
+The rest of this report is organised as follows. Section~\ref{sec:lit} reviews existing approaches
+in chronological order and compares them in Section~\ref{sec:lit-compare}.
+Section~\ref{sec:approach} presents the proposed approach: the system model in
+Section~\ref{sec:system}, the answer-or-forward policies in Section~\ref{sec:policies}, the
+delay-aware algorithm in Section~\ref{sec:algo} and the justification of the design in
+Section~\ref{sec:justify}.
 
 % ================================================================ 2 LITERATURE REVIEW
 \section{Literature Review}\label{sec:lit}
 
-This section reviews \todo{N} categories of related work. Each subsection is followed by a
-pros and cons analysis. A consolidated comparison is given in Table~\ref{tab:compare}.
-
-\subsection{Similarity Caching on General Cache Networks (Base Paper)}
-
-Nakamura and Kamiyama~\cite{nakamura2024analysis} model a cache network as a graph
-$G=(V,E)$ of cache nodes $V_c$ and origin nodes $V_o$, with request/response routing along a
-fixed path $P_{v,c}$ as in CCN/NDN. On a miss, a cache returns its most similar object with
-probability $\alpha$ and forwards otherwise. A client that receives an object with
-similarity below its threshold $s$ waits $\delta$ and re-requests. The user-level metric is
-the \emph{similar-content delivery delay}:
-\begin{equation}
-  D_{v,c} = \sum_{s} \beta^{(s)}_v \, D^{s(\geq)}_{v,c},
-  \qquad
-  D^{s(\geq)} = \sum_{n=1}^{\infty} \Delta^{s(\geq)}_n \, R^{s(\geq)}_n ,
-\end{equation}
-where $\beta^{(s)}_v$ is the client's acceptance distribution over similarity levels,
-$\Delta^{s(\geq)}_n = (n-1)(d^{s(<)}+\delta) + d^{s(\geq)}$ is the delay when the $n$-th
-attempt succeeds, and $R^{s(\geq)}_n = (1-\rho^{s(\geq)})^{n-1}\rho^{s(\geq)}$ is its
-probability.
-
-\pros First closed-form, user-oriented delay metric for similarity caching over a
-multi-node path; captures the client's retry behaviour.
-
-\cons Assumes infinite bandwidth, no queuing and no loss; cache contents are a uniform
-random subset rather than the output of a replacement policy; a single global $\alpha$; a
-five-node tandem topology; evaluated numerically only.
+This section reviews eight approaches in chronological order (Fig.~\ref{fig:timeline}), each
+with its pros and cons, and compares them in Section~\ref{sec:lit-compare}.
 
 \begin{figure}[H]
 \centering
-\begin{tikzpicture}[node distance=0.55cm]
-  \node[bluebox]  (v1) {$v(1)$\\cache};
-  \node[bluebox,  right=of v1] (v2) {$v(2)$\\cache};
-  \node[bluebox,  right=of v2] (v3) {$v(3)$\\cache};
-  \node[bluebox,  right=of v3] (v4) {$v(4)$\\cache};
-  \node[bluebox,  right=of v4] (v5) {$v(5)$\\cache};
-  \node[greenbox, right=of v5] (v6) {$v(6)$\\origin};
-  \foreach \a/\b in {v1/v2,v2/v3,v3/v4,v4/v5,v5/v6} \draw[thick] (\a) -- node[above]{\scriptsize 1 ms} (\b);
-  \foreach \i in {1,...,5} {
-    \node[yellowbox, minimum height=0.6cm, below=0.6cm of v\i] (c\i) {\scriptsize client \i};
-    \draw[thick] (c\i) -- (v\i);
-  }
+\begin{tikzpicture}[x=1.45cm, y=0.72cm,
+    ev/.style={font=\scriptsize, text width=2.5cm, minimum height=0.7cm, inner sep=2pt,
+               execute at begin node={\hyphenpenalty=10000\exhyphenpenalty=10000}},
+    yr/.style={font=\scriptsize\bfseries, fill=white, inner sep=1pt}]
+  \draw[thick, -{Stealth[length=2mm]}] (-0.9,0) -- (9.9,0);
+  \def\event#1#2#3#4#5{%
+    \draw[black!45] (#1,0) -- (#1,#2);
+    \node[#4, ev] at (#1,#2) {#5};
+    \node[yr] at (#1,0) {#3};}
+  \event{0}{1.25}{2008}{bluebox}{Metric cache for search~\cite{falchi2008metric}}
+  \event{1}{2.85}{2009}{bluebox}{Nearest-neighbour caching~\cite{pandey2009nn}}
+  \event{2}{-1.25}{2021}{greenbox}{Placement in cache networks~\cite{garetto2021placement}}
+  \event{3}{1.25}{2022}{bluebox}{Theory and dynamic policies~\cite{neglia2022similarity}}
+  \event{4}{2.85}{2023}{bluebox}{A\c{C}AI online caching~\cite{sisalem2023acai}}
+  \event{5}{1.25}{2024}{bluebox}{TTL hit-rate model~\cite{benmazziane2024ttl}}
+  \event{6}{-2.85}{2024}{greenbox}{User delay on a path (base paper)~\cite{nakamura2024analysis}}
+  \event{7}{-1.25}{2025}{greenbox}{Cooperative edge bandit~\cite{wang2025bandit}}
+  \event{8}{2.85}{2025}{bluebox}{vCache: learned thresholds~\cite{schroeder2025vcache}}
+  \event{9}{-2.85}{2026}{orangebox}{This work: NDN, ns-3}
 \end{tikzpicture}
-\caption{Tandem topology used in the base paper's numerical evaluation~\cite{nakamura2024analysis}.}
-\label{fig:tandem}
+\caption{Reviewed approaches by year (not to scale): one cache above the axis, a network below.}
+\label{fig:timeline}
 \end{figure}
 
-\subsection{\todo{Category B}}
-\subsubsection{\todo{Paper}}
-\todo{Summary.}
+\subsection{Early Similarity Caches (Falchi et al., 2008; Pandey et al., 2009)}
+Falchi et al.~\cite{falchi2008metric} put a cache in front of a content-based image search engine:
+a new query close to a cached one is answered from the stored results of past nearest-neighbour
+queries. Pandey et al.~\cite{pandey2009nn} apply the idea to contextual advertising, where a
+request hits if a similar page is cached; they give caching policies for two efficiency--accuracy
+objectives and bound the gain under a generative model of page requests.
 
-\pros \todo{.}
+\pros First evidence that similar requests can share answers, cutting back-end load.\\
+\cons One cache before one server, a fixed answer rule, and no network delay.
 
-\cons \todo{.}
+\subsection{Placement in Networks of Similarity Caches (Garetto et al., 2021)}
+Garetto, Leonardi and Neglia~\cite{garetto2021placement} move to networks: a request is forwarded
+along a path of similarity caches, and objects are placed so that the path as a whole gives the best
+efficiency--accuracy trade-off. Offline placement is NP-hard; polynomial algorithms approach the
+optimum in discrete cases, and a continuous formulation has a simple optimal structure on trees.
 
-\subsection{Comparison of Existing Approaches}
+\pros A network view of similarity caching, with structural results.\\
+\cons Offline placement with a fixed cost per hop: no queueing, loss, retries or protocol.
+
+\subsection{Similarity Caching: Theory and Algorithms (Neglia et al., 2022)}
+Neglia, Garetto and Leonardi~\cite{neglia2022similarity} analyse one similarity cache in the
+offline, adversarial and stochastic settings: a similar object costs a loss of utility that grows
+with dissimilarity, and a miss costs a retrieval cost. They propose the first dynamic policies with
+optimality guarantees.
+
+\pros A rigorous cost model, and dynamic policies with guarantees.\\
+\cons One cache; retrieval cost is not a measured delay, and users never reject or retry.
+
+\subsection{Ascent Similarity Caching with Approximate Indexes (Si Salem et al., 2023)}
+Si Salem, Neglia and Carra~\cite{sisalem2023acai} propose A\c{C}AI for edge servers: an approximate
+index of the whole catalogue decides what to serve locally and what to fetch from the remote server,
+and mirror ascent updates the cached set, with guarantees even when requests have no statistical
+regularity.
+
+\pros Guarantees under adversarial requests; practical approximate indexes.\\
+\cons One edge cache; the congested, lossy path to the remote server is not modelled.
+
+\subsection{TTL Model for an LRU-based Similarity Cache (Ben Mazziane et al., 2024)}
+Ben Mazziane et al.~\cite{benmazziane2024ttl} extend the time-to-live (TTL) approximation of classical
+caching to an LRU-based similarity caching policy. A TTL cache model, tuned through a fixed-point
+system of equations to mimic the policy, gives its hit rate without simulation.
+
+\pros Tractable hit rates, which could replace the random contents of network models.\\
+\cons One cache, and the hit rate only: neither delay nor a network is modelled.
+
+\subsection{Similarity Caching on Cache Networks (Nakamura and Kamiyama, 2024)}
+In our base paper~\cite{nakamura2024analysis}, a request follows a fixed path of caches towards the
+origin. On a miss, each cache answers with its most similar object with probability $\alpha$ and
+forwards otherwise. The client accepts only a similarity of at least $s$; otherwise it waits
+$\delta$ and asks again. With $\rho$ the probability that an attempt is accepted, and $d^{\ge}$ and
+$d^{<}$ the mean delays of accepted and rejected attempts, the mean delivery delay, evaluated
+numerically on a tandem of five caches, is
+\begin{equation}
+  \mathbb{E}[D] = d^{\ge} + \bigl(1/\rho - 1\bigr)\bigl(d^{<} + \delta\bigr).
+  \label{eq:paper}
+\end{equation}
+Re-deriving the model, we found three problems. The printed path delay, Eq.~(6), uses only the
+last-hop round trip, but the figures use the cumulative one; with that correction we match
+Fig.~5(a) at $s = 1$ for $\alpha$ = 0.1 and 0.5 (9.96, 45.97~ms) and come close at $\alpha = 0.9$
+(80.6~ms). Eqs.~(8) and~(10) appear to describe different caches, one that knows $s$ and one that
+is blind. Most importantly, Eq.~\eqref{eq:paper} averages $\rho$ as if each retry redrew the cache
+contents; when contents persist, the mean number of attempts is
+$\mathbb{E}[1/\rho] \ge 1/\mathbb{E}[\rho]$ (Jensen), so the model underestimates the delay.
+% 9.96 / 45.97 / 80.62 ms: research/results/retry_correlation.txt, "model ms" at s = 1.
+
+\pros The first closed-form, user-level delay metric over a path of caches, with retries.\\
+\cons One global $\alpha$, even for exact hits; ideal links; independent retries; numerical only.
+
+\subsection{Similarity Caching in Cooperative Edge Networks (Wang et al., 2025)}
+Wang et al.~\cite{wang2025bandit} study edge nodes that cooperatively serve requests over
+fluctuating links. Casting caching as an adversarial multi-armed bandit, their online policy MABSCP
+updates the cached sets from real-time feedback to minimise a cost that balances similarity
+against delivery latency.
+
+\pros Cooperative and online; latency is part of the cost, and the policy adapts to change.\\
+\cons Decides what to cache, not whether to answer; no measured latency, no retries.
+
+\subsection{Verified Semantic Prompt Caching (Schroeder et al., 2025)}
+vCache~\cite{schroeder2025vcache} reuses a stored LLM response when a new prompt's embedding is
+close to a cached one. Instead of one static similarity threshold, it learns online a threshold for
+each cached prompt, so that the cache meets an error rate set by the user.
+
+\pros It answers only when acceptance is likely, learned from feedback: closest to our rule.\\
+\cons One server-side cache; it controls correctness, not delay, and has no network path.
+
+\subsection{Comparison of Existing Approaches}\label{sec:lit-compare}
 
 \begin{table}[H]
 \centering
-\caption{Comparison of Existing Similarity-Caching Approaches}
+\caption{Comparison of the reviewed similarity-caching approaches}
 \label{tab:compare}
-\begin{tabular}{@{}p{3.2cm}>{\centering}p{2.2cm}>{\centering}p{2.2cm}>{\centering}p{2.4cm}>{\centering\arraybackslash}p{2.6cm}@{}}
+\footnotesize
+\renewcommand{\arraystretch}{1.1}
+\begin{tabularx}{\linewidth}{@{}>{\raggedright}p{3.4cm}>{\raggedright}p{1.8cm}>{\raggedright}X>{\raggedright}p{2.6cm}>{\raggedright\arraybackslash}p{2.5cm}@{}}
 \toprule
-\textbf{Approach} & \textbf{Scope} & \textbf{User-Level Metric} & \textbf{Congestion / Loss} & \textbf{Packet-Level Validation} \\
+\textbf{Approach} & \textbf{Scope} & \textbf{What it decides} & \textbf{Rejections, retries} &
+\textbf{Upstream delay, loss} \\
 \midrule
-Nakamura \& Kamiyama~\cite{nakamura2024analysis} & Network & Yes & No & No \\
-\todo{} & & & & \\
+Falchi~\cite{falchi2008metric}, Pandey~\cite{pandey2009nn} & One cache & What to store & No & No \\
+Garetto~\cite{garetto2021placement} & Path, tree & Offline placement & No & No \\
+Neglia~\cite{neglia2022similarity} & One cache & What to store & No & No \\
+Si Salem~\cite{sisalem2023acai} & One cache & What to store, online & No & No \\
+Ben Mazziane~\cite{benmazziane2024ttl} & One cache & Analysis only (hit rate) & No & No \\
+Nakamura~\cite{nakamura2024analysis} & Path & Answer with fixed probability $\alpha$ & Independent & No \\
+Wang~\cite{wang2025bandit} & Edge nodes & What to store, online & No & Latency as a cost \\
+Schroeder~\cite{schroeder2025vcache} & One cache & When to answer (learned) & No & No \\
 \midrule
-\textbf{Proposed} & \textbf{Network} & \textbf{Yes} & \textbf{Yes} & \textbf{Yes (ns-3)} \\
+\textbf{Proposed (ns-3, packet level)} & \textbf{NDN path} & \textbf{Answer or forward, per request} &
+\textbf{Correlated, bounded} & \textbf{Measured online} \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table}
 
-\todo{One paragraph naming the gap the table exposes.}
+Table~\ref{tab:compare} shows the gap. Single-cache work decides what to store but never sees a
+network; network work places content for a known cost but ignores users who reject and retry; the
+base paper models those users, but with blind caches, independent retries and an ideal network. No
+approach lets a cache choose, per request, between an approximate local answer and the upstream path
+from the user's tolerance and the delay it measures, and none is evaluated with protocol packets.
 
-% ================================================================ 3 METHODOLOGY
-\section{Proposed Methodology}\label{sec:method}
+% ================================================================ 3 PROPOSED APPROACH
+\section{Proposed Approach}\label{sec:approach}
 
-\subsection{System Overview}
-\todo{End-to-end diagram and one-paragraph walkthrough.}
+\subsection{System Model}\label{sec:system}
+We keep the base paper's tandem, so results compare with its model, and add what it leaves out
+(Fig.~\ref{fig:system}). Five caches and an origin are joined by 1~Gbps links with a 1~ms delay,
+and client $c_i$ runs on cache $v_i$. The catalogue has $C = 100$ items, each cache holds
+$B = 10$, and a rejected client retries after $\delta = 10$~ms. For congestion, the link from $v_5$
+to the origin becomes a 2~Mbps backhaul with a 100-packet DropTail queue, shared with Poisson cross
+traffic from $v_1$. For loss, every link drops packets in bursts following a Gilbert--Elliott
+model~\cite{gilbert1960capacity,elliott1963estimates} with a mean burst of 3.3 packets. NDN's name
+matching is unchanged: a substitute item travels inside a Data packet named after the full
+Interest, and the payload says which item it is and how similar.
+% Parameters: research/results/stage4/analysis.md header and stage4/sweep.md.
 
-\subsection{ns-3/ndnSIM Simulation Topology}
-\todo{Nodes, routers, link delay / bandwidth / qdisc, routing.}
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[font=\footnotesize, node distance=0.6cm,
+    cache/.style={bluebox, minimum width=1.25cm, minimum height=0.75cm}]
+  \node[cache] (v1) {$v_1$, $c_1$};
+  \foreach \i [count=\p] in {2,...,5} \node[cache, right=of v\p] (v\i) {$v_\i$, $c_\i$};
+  \node[greenbox, minimum height=0.75cm, right=1.9cm of v5] (o) {origin};
+  \foreach \a/\b in {v1/v2,v2/v3,v3/v4,v4/v5} \draw[thick] (\a) -- (\b);
+  \draw[line width=2pt, red!60!black] (v5) -- node[above, font=\scriptsize] {2 Mbps}
+        node[below, font=\scriptsize] {DropTail} (o);
+  \node[graybox, minimum height=0.5cm, inner sep=2pt, left=0.6cm of v1] (x) {cross traffic};
+  \draw[arr, dashed, black!55] (x.north) -- ++(0,0.75) -| node[pos=0.27, above, font=\scriptsize]
+        {Poisson Interests to the origin; 1 Gbps, 1 ms links; Gilbert--Elliott loss in the loss
+        runs} (o.north);
+  \node[font=\scriptsize, align=left, anchor=north west, text width=14cm]
+        at ([yshift=-0.3cm]x.south west |- v1.south)
+        {\textbf{Interest:} \code{/sim/<item>/<client>/<seq>/<attempt>}, HopLimit, and
+        \code{smin=}$s$ or \code{excl=}$v_j,\dots$\\
+        \textbf{Data:} the full Interest name; served item $c'$, similarity $s'$, serving hop};
+\end{tikzpicture}
+\caption{System model: the base paper's tandem with a congested backhaul, cross traffic, burst loss
+and our packet formats. Cache $v_i$ hosts client $c_i$, a similarity store and our strategy.}
+\label{fig:system}
+\end{figure}
 
-\subsection{Proposed Algorithm}
+\subsection{Answer-or-Forward Policies}\label{sec:policies}
+At cache $v$, an Interest for item $c$ meets the most similar stored item $c'$, with similarity
+$s'$; the cache answers with $c'$ or forwards, under one of four rules.
+\begin{itemize}
+  \item \textbf{Blind} (the base paper): answer with probability $\alpha$.
+  \item \textbf{Threshold}: the Interest carries the user's threshold $s$, and $v$ answers only if
+        $s' \ge s$ (and its $\alpha$ coin agrees). Nothing is rejected, so a request takes one
+        attempt and the paper's Eq.~(8) becomes exact. With $p_i$ the probability that the $i$-th
+        cache on the path holds an acceptable item, $q_i = \alpha p_i$, $m$ caches before the
+        origin and link delay $\tau$,
+        \begin{equation}
+          \mathbb{E}[D_{\mathrm{thr}}] = \sum_{i=1}^{m} 2\tau(i-1)\,q_i\prod_{j<i}(1-q_j)
+          \;+\; 2\tau m\prod_{j=1}^{m}(1-q_j).
+          \label{eq:threshold}
+        \end{equation}
+  \item \textbf{Exclusion}: caches stay blind, but a retry lists the caches whose answers were
+        rejected, and they forward; a request needs at most $m+1$ attempts.
+  \item \textbf{Delay-aware} (ours): let $\Dup$ be the measured delay of forwarding, $R_h$ the round
+        trip to a client $h$ hops away and $F_v(s')$ the share of $v$'s users who accept $s'$.
+        Answering costs $R_h$ plus, with probability $1-F_v(s')$, a rejection
+        ($\delta + R_h + \Dup$); forwarding costs $R_h + \Dup$. So $v$ answers iff
+        \begin{equation}
+          \bigl(1-F_v(s')\bigr)\bigl(\delta + R_h + \Dup\bigr) < \Dup
+          \iff
+          s' \ge s^{*}_v = F_v^{-1}\!\Bigl(1 - \frac{\Dup}{\delta + R_h + \Dup}\Bigr).
+          \label{eq:rule}
+        \end{equation}
+\end{itemize}
+
+\subsection{Delay-Aware Algorithm}\label{sec:algo}
+In Algorithm~\ref{alg:delay-aware}, $\Dup$ is a smoothed round trip with gain $1/8$, as in
+TCP~\cite{jacobson1988congestion,paxson2011rfc6298}; an expired Interest counts as the time lost,
+so $\Dup$ also sees loss. $F_v$ uses 20 similarity bins with a Laplace prior, fitted to be
+non-decreasing. A retry naming $v$ is a rejection and no retry within a window $W$ an acceptance.
+The verdict is uncertain while Eq.~\eqref{eq:rule} differs at $F_v \pm 2$ standard errors, so
+exploration stops once each bin is settled.
 
 \begin{algorithm}[H]
-\caption{\todo{Name}}
-\label{alg:main}
+\caption{Delay-aware answer-or-forward at cache $v$}
+\label{alg:delay-aware}
 \begin{algorithmic}[1]
-\Require Request for object $c$, local cache $\mathcal{B}$, threshold $s$
-\Ensure Response object $c'$
-\If{$c \in \mathcal{B}$}
-  \State \Return $c$ \Comment{\textit{exact hit}}
+\Require Interest $I$ for item $c$ from a client $h$ hops away, exclusion list $E(I)$; store
+         $\mathcal{B}_v$; estimates $\Dup$, per-hop round trip $r$ and $F_v$
+\State $c' \gets \arg\max_{x \in \mathcal{B}_v} \mathrm{sim}(c, x)$; \quad
+       $s' \gets \mathrm{sim}(c, c')$; \quad $R_h \gets h\, r$
+\If{$v \in E(I)$} \Comment{\textit{our earlier answer was rejected}}
+  \State record a rejection for the similarity $v$ served; forward $I$
+\ElsIf{$s' = 1$ \textbf{or} $(1-F_v(s'))(\delta + R_h + \Dup) < \Dup$ \textbf{or} the verdict is
+       uncertain}
+  \State send Data$(\mathrm{name}(I);\, c', s', h)$ downstream; remember $(I, s', t_{\mathrm{now}})$
+\Else
+  \State $t_{\mathrm{fwd}}(I) \gets t_{\mathrm{now}}$; forward $I$ upstream
 \EndIf
-\State $c' \gets \arg\max_{x \in \mathcal{B}} \mathrm{sim}(c, x)$
-\If{\todo{decision rule}}
-  \State \Return $c'$ \Comment{\textit{approximate hit}}
-\EndIf
-\State forward request upstream
+\Statex \textbf{on} Data or expiry for a forwarded $I$:
+        $\Dup \gets \tfrac{7}{8}\Dup + \tfrac{1}{8}\bigl(t_{\mathrm{now}} - t_{\mathrm{fwd}}(I)\bigr)$;
+        update $r$
+\Statex \textbf{on} no retry naming $v$ within $W$ of an answer: record an acceptance for its $s'$
 \end{algorithmic}
 \end{algorithm}
 
-\subsection{Packet / Header Format}
-
-\begin{table}[H]
-\centering
-\caption{Request Header Format}
-\label{tab:header}
-\begin{tabular}{@{}lll@{}}
-\toprule
-\textbf{Field} & \textbf{Width} & \textbf{Description} \\
-\midrule
-\todo{} & & \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\subsection{Software Architecture}
-\todo{Module table and folder tree.}
-
-\dirtree{%
-.1 cn\_project/.
-.2 topology/.
-.2 cache/.
-.2 client/.
-.2 experiments/.
-.2 analysis/.
-}
-
-\subsection{Key Engineering Challenges and Solutions}
-\subsubsection{\todo{Challenge}}
-\todo{.}
-
-% ================================================================ 4 RESULTS
-\section{Results and Analysis}\label{sec:results}
-
-\subsection{Experimental Setup}
-
-\begin{table}[H]
-\centering
-\caption{Emulation Environment}
-\label{tab:setup}
-\begin{tabular}{@{}ll@{}}
-\toprule
-\textbf{Parameter} & \textbf{Value} \\
-\midrule
-Simulator         & ns-3 with ndnSIM \\
-Topology          & \todo{} \\
-Link delay / rate & \todo{} \\
-Cache size $B$    & \todo{} \\
-Catalogue size $C$& \todo{} \\
-Trials            & \todo{} \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\subsection{Performance Metrics}
+\subsection{Justification}\label{sec:justify}
 \begin{itemize}
-  \item \textbf{Similar-content delivery delay:} \todo{.}
-  \item \textbf{Approximate / exact hit ratio:} \todo{.}
-  \item \textbf{Delivered similarity:} \todo{.}
-  \item \textbf{Upstream traffic:} \todo{.}
+  \item \textbf{Bounding retries.} With blind caches and persistent contents, a user whose $m$
+        caches hold nothing acceptable succeeds only if all forward, with probability
+        $(1-\alpha)^m = 10^{-5}$ at $\alpha = 0.9$: in our simulation the mean delay at $s = 1$
+        rises from the model's 80.6~ms to 14.5~s.
+        % research/results/stage2/analysis.md (0.9, 1.0: model 80.62 ms; per-request 14521.56 ms).
+  \item \textbf{$\alpha$ becomes obsolete.} In Eq.~\eqref{eq:threshold}, raising $q_i$ moves
+        probability from outcomes with delay $\ge 2\tau i$ to one with delay $2\tau(i-1)$, so the
+        delay falls strictly in $\alpha$: $\alpha = 1$ is optimal.
+  \item \textbf{Privacy and adaptation.} Exclusion and the delay-aware rule keep the user's
+        threshold at the client; Eq.~\eqref{eq:rule} always serves an exact hit. Upstream
+        congestion or loss raises $\Dup$ and lowers $s^{*}_v$, so the cache answers locally more.
+  \item \textbf{Platform.} NFD's Content Store matches exact names before the strategy runs, so our
+        strategy does the similarity lookup and NFD is unchanged. In ndnSIM~2.9, NDN packets bypass
+        ns-3's traffic control, so congestion is a DropTail queue; we claim nothing about RED or CoDel.
 \end{itemize}
-
-\subsection{Validation Against the Analytical Model}
-\todo{Simulated vs.\ closed-form delay, base-paper settings.}
-
-% ================================================================ 5 CONCLUSION
-\section{Conclusions and Future Work}\label{sec:conc}
-
-\subsection{Summary of Achievements}
-\todo{.}
-
-\subsection{Limitations}
-\begin{enumerate}
-  \item \todo{.}
-\end{enumerate}
-
-\subsection{Future Work}
-\begin{enumerate}
-  \item \todo{.}
-\end{enumerate}
 
 % ================================================================ REFERENCES
 \begin{thebibliography}{99}
+
+\bibitem{zhang2014ndn}
+L.~Zhang \emph{et al.}, ``Named data networking,'' \emph{ACM SIGCOMM Comput. Commun. Rev.},
+vol.~44, no.~3, pp.~66--73, Jul. 2014, doi: 10.1145/2656877.2656887.
+
+\bibitem{neglia2022similarity}
+G.~Neglia, M.~Garetto, and E.~Leonardi, ``Similarity caching: Theory and algorithms,''
+\emph{IEEE/ACM Trans. Netw.}, vol.~30, no.~2, pp.~475--486, Apr. 2022,
+doi: 10.1109/TNET.2021.3126368.
+
+\bibitem{schroeder2025vcache}
+L.~G.~Schroeder \emph{et al.}, ``vCache: Verified semantic prompt caching,''
+arXiv:2502.03771, 2025.
 
 \bibitem{nakamura2024analysis}
 R.~Nakamura and N.~Kamiyama, ``Analysis of similarity caching on general cache networks,''
 \emph{IEEE Access}, vol.~12, pp.~163338--163348, 2024, doi: 10.1109/ACCESS.2024.3489620.
 
-\bibitem{neglia2022similarity}
-G.~Neglia, M.~Garetto, and E.~Leonardi, ``Similarity caching: Theory and algorithms,''
-\emph{IEEE/ACM Trans. Netw.}, vol.~30, no.~2, pp.~475--486, 2022.
+\bibitem{mastorakis2017ndnsim}
+S.~Mastorakis, A.~Afanasyev, and L.~Zhang, ``On the evolution of ndnSIM: An open-source simulator
+for NDN experimentation,'' \emph{ACM SIGCOMM Comput. Commun. Rev.}, vol.~47, no.~3, pp.~19--33,
+2017, doi: 10.1145/3138808.3138812.
+
+\bibitem{jacobson2009ccn}
+V.~Jacobson, D.~K.~Smetters, J.~D.~Thornton, M.~F.~Plass, N.~H.~Briggs, and R.~L.~Braynard,
+``Networking named content,'' in \emph{Proc. 5th Int. Conf. Emerg. Netw. Exp. Technol.
+(CoNEXT)}, 2009, pp.~1--12, doi: 10.1145/1658939.1658941.
+
+\bibitem{chaudhary2026ndncaching}
+P.~Chaudhary, N.~Hubballi, and S.~G.~Kulkarni, ``Content caching methods in named data
+networks,'' arXiv:2605.13104, 2026.
 
 \bibitem{falchi2008metric}
-F.~Falchi, C.~Lucchese, S.~Orlando, R.~Perego, and F.~Rabitti, ``A metric cache for
-similarity search,'' in \emph{Proc. ACM Workshop Large-Scale Distrib. Syst. Inf. Retr.},
-2008, pp.~43--50.
+F.~Falchi, C.~Lucchese, S.~Orlando, R.~Perego, and F.~Rabitti, ``A metric cache for similarity
+search,'' in \emph{Proc. ACM Workshop Large-Scale Distrib. Syst. Inf. Retrieval (LSDS-IR)}, 2008,
+pp.~43--50, doi: 10.1145/1458469.1458473.
 
 \bibitem{pandey2009nn}
 S.~Pandey, A.~Broder, F.~Chierichetti, V.~Josifovski, R.~Kumar, and S.~Vassilvitskii,
-``Nearest-neighbor caching for content-match applications,'' in \emph{Proc. 18th Int. Conf.
-World Wide Web}, 2009, pp.~441--450.
+``Nearest-neighbor caching for content-match applications,'' in \emph{Proc. 18th Int. Conf. World
+Wide Web (WWW)}, 2009, pp.~441--450, doi: 10.1145/1526709.1526769.
 
-\bibitem{jacobson2009ccn}
-V.~Jacobson, D.~K.~Smetters, J.~D.~Thornton, M.~F.~Plass, N.~H.~Briggs, and
-R.~L.~Braynard, ``Networking named content,'' in \emph{Proc. 5th ACM CoNEXT}, 2009,
-pp.~1--12.
+\bibitem{bang2023gptcache}
+F.~Bang, ``GPTCache: An open-source semantic cache for LLM applications enabling faster answers and
+cost savings,'' in \emph{Proc. 3rd Workshop NLP Open Source Softw. (NLP-OSS)}, 2023,
+pp.~212--218, doi: 10.18653/v1/2023.nlposs-1.24.
 
-\bibitem{zhang2014ndn}
-L.~Zhang \emph{et al.}, ``Named data networking,'' \emph{ACM SIGCOMM Comput. Commun.
-Rev.}, vol.~44, no.~3, pp.~66--73, 2014.
+\bibitem{gill2025meancache}
+W.~Gill, M.~Elidrisi, P.~Kalapatapu, A.~Ahmed, A.~Anwar, and M.~A.~Gulzar, ``MeanCache:
+User-centric semantic caching for LLM web services,'' in \emph{Proc. IEEE Int. Parallel Distrib.
+Process. Symp. (IPDPS)}, 2025, pp.~1298--1310, doi: 10.1109/IPDPS64566.2025.00117.
+
+\bibitem{gilbert1960capacity}
+E.~N.~Gilbert, ``Capacity of a burst-noise channel,'' \emph{Bell Syst. Tech. J.}, vol.~39, no.~5,
+pp.~1253--1265, Sep. 1960, doi: 10.1002/j.1538-7305.1960.tb03959.x.
+
+\bibitem{elliott1963estimates}
+E.~O.~Elliott, ``Estimates of error rates for codes on burst-noise channels,'' \emph{Bell Syst.
+Tech. J.}, vol.~42, no.~5, pp.~1977--1997, Sep. 1963, doi: 10.1002/j.1538-7305.1963.tb00955.x.
+
+\bibitem{jacobson1988congestion}
+V.~Jacobson, ``Congestion avoidance and control,'' in \emph{Proc. ACM SIGCOMM}, 1988,
+pp.~314--329, doi: 10.1145/52324.52356.
+
+\bibitem{paxson2011rfc6298}
+V.~Paxson, M.~Allman, J.~Chu, and M.~Sargent, ``Computing TCP's retransmission timer,'' IETF,
+RFC~6298, Jun. 2011.
+
+\bibitem{sisalem2023acai}
+T.~Si~Salem, G.~Neglia, and D.~Carra, ``Ascent similarity caching with approximate indexes,''
+\emph{IEEE/ACM Trans. Netw.}, vol.~31, no.~3, pp.~1173--1186, Jun. 2023,
+doi: 10.1109/TNET.2022.3217012.
+
+\bibitem{benmazziane2024ttl}
+Y.~Ben~Mazziane, S.~Alouf, G.~Neglia, and D.~S.~Menasch\'{e}, ``TTL model for an LRU-based
+similarity caching policy,'' \emph{Comput. Netw.}, vol.~241, Art. no.~110206, Mar. 2024,
+doi: 10.1016/j.comnet.2024.110206.
+
+\bibitem{garetto2021placement}
+M.~Garetto, E.~Leonardi, and G.~Neglia, ``Content placement in networks of similarity caches,''
+\emph{Comput. Netw.}, vol.~201, Art. no.~108570, Dec. 2021, doi: 10.1016/j.comnet.2021.108570.
+
+\bibitem{wang2025bandit}
+L.~Wang \emph{et al.}, ``Similarity caching in dynamic cooperative edge networks: An adversarial
+bandit approach,'' \emph{IEEE Trans. Mobile Comput.}, vol.~24, no.~4, pp.~2769--2782, Apr. 2025,
+doi: 10.1109/TMC.2024.3500132.
 
 \end{thebibliography}
 
