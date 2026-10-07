@@ -33,12 +33,13 @@ SimConsumer::SimConsumer()
 }
 
 void
-SimConsumer::StartRequest(uint32_t requestId, uint32_t item)
+SimConsumer::StartRequest(uint32_t requestId, uint32_t item, double threshold)
 {
   NS_ABORT_MSG_IF(m_busy, "client " << GetNode()->GetId() << " already has a request");
   m_busy = true;
   m_requestId = requestId;
   m_item = item;
+  m_threshold = threshold;
   m_attempt = 0;
   m_timeouts = 0;
   m_interestHops = 0;
@@ -62,11 +63,16 @@ SimConsumer::SendAttempt()
   interest->setCanBePrefix(false);
   interest->setInterestLifetime(
     ::ndn::time::milliseconds(config.interestLifetime.GetMilliSeconds()));
-  // blind Interests stay byte-identical to Stage 2: a blind cache never learns the threshold
+  // blind Interests stay byte-identical to Stage 2: a blind cache never learns the threshold;
+  // nor does a delay-aware one, which instead needs the HopLimit to know how far the client is
   if (config.policy != Policy::Blind) {
-    std::string params = EncodeParams({config.threshold, m_excluded});
+    bool aware = config.policy == Policy::DelayAware;
+    std::string params = EncodeParams({aware ? -1.0 : m_threshold, m_excluded});
     interest->setApplicationParameters(
       std::make_shared<::ndn::Buffer>(params.begin(), params.end()));
+    if (aware) {
+      interest->setHopLimit(kHopLimit);
+    }
   }
 
   m_timeoutEvent = Simulator::Schedule(config.interestLifetime, &SimConsumer::OnTimeout, this);
@@ -94,11 +100,11 @@ SimConsumer::OnData(std::shared_ptr<const ::ndn::Data> data)
   auto& controller = SimController::Get();
   const auto& config = controller.GetConfig();
   m_interestHops += controller.Position(answer.node) - controller.Position(GetNode()->GetId());
-  if (Acceptable(answer.similarity, config.threshold)) {
+  if (Acceptable(answer.similarity, m_threshold)) {
     Finish(answer.node, answer.similarity, false);
     return;
   }
-  if (config.policy == Policy::Exclusion) {
+  if (config.policy == Policy::Exclusion || config.policy == Policy::DelayAware) {
     m_excluded.push_back(answer.node);
   }
   RetryOrGiveUp(answer.node, answer.similarity, config.delta);
@@ -142,6 +148,7 @@ SimConsumer::Finish(uint32_t servedNode, double similarity, bool censored)
   record.requestId = m_requestId;
   record.clientNode = GetNode()->GetId();
   record.item = m_item;
+  record.threshold = m_threshold;
   record.attempts = m_attempt;
   record.timeouts = m_timeouts;
   record.delayMs = (Simulator::Now() - m_firstSend).GetSeconds() * 1000.0;

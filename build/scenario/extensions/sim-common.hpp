@@ -1,9 +1,11 @@
 /* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
 // Wire format shared by the strategy, producer and consumer.
 // Interest name: /sim/<item>/<clientNode>/<requestId>/<attempt>[/<paramsDigest>]
-// Interest ApplicationParameters (threshold and exclusion policies only): "smin=<s>;excl=<n>,<n>"
-// Data content : "<servedItem> <similarity> <servingNode>" under the Interest's own name,
-// because NFD only accepts Data whose name matches the pending Interest (see design_notes Q2).
+// Interest ApplicationParameters (all policies but blind): "[smin=<s>;]excl=<n>,<n>"; delay-aware
+// requests leave out smin (caches must not learn the user's threshold) and set a HopLimit.
+// Data content : "<servedItem> <similarity> <servingNode>[ <hopLimitSeen>]" under the Interest's
+// own name, because NFD only accepts Data whose name matches the pending Interest (design_notes
+// Q2). The HopLimit the server saw is echoed only when the Interest carried one.
 
 #ifndef SIMCACHE_SIM_COMMON_HPP
 #define SIMCACHE_SIM_COMMON_HPP
@@ -23,17 +25,25 @@
 namespace ns3 {
 namespace simcache {
 
+// initial HopLimit of delay-aware requests; NFD decrements it at every node
+const uint8_t kHopLimit = 32;
+
 struct Answer
 {
   uint32_t item = 0;
   double similarity = 0;
   uint32_t node = 0;
+  int hopLimit = -1; // HopLimit the serving node saw; -1 if the Interest had none
 };
 
 struct RequestParams
 {
-  double sMin = 0;
+  double sMin = -1;               // -1: not carried
   std::vector<uint32_t> excluded; // caches that served a rejected answer to this request
+  // filled locally by the strategy, never on the wire
+  uint32_t client = 0;
+  uint32_t request = 0;
+  uint32_t hops = 0; // from the client to this node, known from HopLimit
 };
 
 // cache and consumer must agree exactly; the tolerance absorbs the similarity's decimal round trip
@@ -54,7 +64,10 @@ inline std::string
 EncodeParams(const RequestParams& params)
 {
   std::ostringstream os;
-  os << "smin=" << std::setprecision(17) << params.sMin << ";excl=";
+  if (params.sMin >= 0) {
+    os << "smin=" << std::setprecision(17) << params.sMin << ';';
+  }
+  os << "excl=";
   for (size_t i = 0; i < params.excluded.size(); ++i) {
     os << (i > 0 ? "," : "") << params.excluded[i];
   }
@@ -95,6 +108,12 @@ ParseParams(const ::ndn::Interest& interest)
   return ParseParams(std::string(reinterpret_cast<const char*>(block.value()), block.value_size()));
 }
 
+inline int
+HopLimitOf(const ::ndn::Interest& interest)
+{
+  return interest.getHopLimit() ? static_cast<int>(*interest.getHopLimit()) : -1;
+}
+
 inline bool
 IsSimName(const ::ndn::Name& name)
 {
@@ -116,6 +135,9 @@ MakeAnswerData(const ::ndn::Name& name, const Answer& answer)
 {
   std::ostringstream os;
   os << answer.item << ' ' << std::setprecision(17) << answer.similarity << ' ' << answer.node;
+  if (answer.hopLimit >= 0) {
+    os << ' ' << answer.hopLimit;
+  }
   std::string payload = os.str();
 
   auto data = std::make_shared<::ndn::Data>(name);
@@ -140,6 +162,9 @@ ParseAnswer(const ::ndn::Data& data)
                                     content.value_size()));
   Answer answer;
   is >> answer.item >> answer.similarity >> answer.node;
+  if (!(is >> answer.hopLimit)) {
+    answer.hopLimit = -1;
+  }
   return answer;
 }
 

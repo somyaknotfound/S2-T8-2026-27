@@ -32,7 +32,9 @@ To configure: `./waf configure --debug --out=/root/scenario-build` for developme
 Evidence:
 - NFD's Content Store matches by exact name, and the forwarder consults it *before* the strategy, only when no other request for the same name is pending (`ndnSIM/NFD/daemon/fw/forwarder.cpp:160-167`). It can't do nearest-neighbour lookup.
 - On a Content Store miss the strategy gets `afterReceiveInterest` (`ndnSIM/NFD/daemon/fw/strategy.hpp:147`). From there it can answer itself with `sendData(data, egress, pitEntry)` (`strategy.hpp:297`). That call deletes the pending request's record of where the Interest came from and closes the request when nothing else is waiting (`strategy.cpp:258-275`).
-- Every Data passing back toward the consumer reaches `afterReceiveData` (`strategy.hpp:229`). That is where on-path insertion into our store happens, when insertion is enabled.
+- ~~Every Data passing back toward the consumer reaches `afterReceiveData` (`strategy.hpp:229`).~~ **Corrected 8 Oct (found in S4):** this holds for upstream NFD, not for ndnSIM 2.9's fork.
+  - Here `Forwarder::onIncomingData` sends every matching PIT entry through `Strategy::satisfyInterest` (`forwarder.cpp:341-347`), which calls the virtual **`beforeSatisfyInterest`**. `afterReceiveData` is never invoked.
+  - A strategy that wants to see returning Data must override `beforeSatisfyInterest`. That is where the delay-aware cache measures its upstream RTT, and where on-path insertion would go.
 - The Data's name must match the pending request's name (`strategy.cpp:250`). See Q2.
 
 The three modes live in `afterReceiveInterest`:
@@ -122,6 +124,34 @@ This is the only change made to ndnSIM itself. It lives in `build/env/ndn-cxx-sc
 - Three S2 runs (2,200 rows) still replay exactly, so S2 results stand as published.
 - 80k attempts now take 19.3 s instead of 138.7 s, with near-linear scaling.
 - The rebuilt scenario binary is byte-identical (md5 `0430bfc5…`), because ndnSIM links dynamically.
+
+## Delay-aware cache — as implemented in Stage 4 (8 Oct)
+
+- **Where the state lives:**
+  - `DelayAwareState` (`extensions/delay-aware.{hpp,cpp}`), one per cache, is owned by the controller (keyed by node id) so it can be logged.
+  - The strategy feeds it from three hooks:
+    - `afterReceiveInterest`: decide; record the forward.
+    - `beforeSatisfyInterest`: an upstream Data arrived. Not `afterReceiveData`, which this NFD fork never calls; see Q1.
+    - The forwarder's `beforeExpirePendingInterest` signal: a forwarded Interest died unsatisfied.
+- **D_up** is the SRTT (gain 1/8) of forwarded /sim Interests. Expiries count as samples equal to the time the client lost.
+  - It averages near answers (an upstream cache) and far ones (the origin over the backhaul). That is the right quantity for an expected-cost rule.
+  - It is why v5, whose forwards all cross the backhaul, has the highest D_up under load.
+  - It measures the first answer only, so a rejection further upstream is not in it. This is an approximation.
+- **RTT_h** = h × the smallest per-hop RTT seen. h comes from HopLimit (consumers set 32 and NFD decrements at every node, `forwarder.cpp:104-113`). The per-hop RTT comes from the HopLimit the server echoes in the Data payload.
+  - The minimum filter assumes the client-to-cache segment is uncongested, which is true here: only the backhaul is a bottleneck.
+- **F is isotonic.** Pool-adjacent-violators runs over the Laplace-smoothed per-bin rates, weighted by observations.
+  - Whoever accepts s′ accepts anything closer, so F must be non-decreasing.
+  - Without the fit, rarely seen low bins kept the 1/2 prior. Once D_up > δ the rule then answered items no user accepts (s* = 0 at three caches under load).
+- **Exploration is confidence-based:** answer anyway only while the rule's verdict differs at F ± 2·SE (SE from the pooled weight).
+  - A fixed 30-samples-per-bin budget was tried first: rejections were still 6.6% of requests after 1,750.
+  - Permanent ε-greedy would never converge to the oracle.
+  - With s = 0.95 for every user, delay-aware equals the oracle after warm-up: 1.16 vs 1.17 ms, no rejections.
+- **Feedback** reuses the S3 `excl` list:
+  - a retry naming this cache is a rejection;
+  - no retry within 1 s is an acceptance;
+  - a retry *not* naming it means the answer was lost, which is not counted.
+- **Wire format:** delay-aware Interests carry `excl=` but no `smin` (the cache never learns the user's threshold), plus a HopLimit.
+  - The other policies' packets are unchanged: S2/S3 runs still replay byte-for-byte.
 
 ## Loss
 

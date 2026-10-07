@@ -41,6 +41,20 @@ docker exec ndnsim bash -c '/root/scenario-build/tandem --policy=threshold --alp
   - `build/experiments/stage3_followup.sh` then adds runs 6–25 for every threshold and exclusion cell (960 runs, about 15 min). This is the gate-1 re-test.
   - `python build/analysis/stage3_summary.py` imports the model directly.
   - `python build/retry_correlation_check.py --stage3 > research/results/stage3/model.txt` regenerates the expectations table (exact, takes about 1 s).
+- **Stage 4:**
+  - `build/experiments/stage4_sweep.sh` runs 485 runs (load, loss and fixed-user scenarios) into `research/results/raw/stage4/<scenario>/{req,run,nodes}.csv`.
+  - Then run `python build/analysis/stage4_summary.py`.
+  - New `tandem` flags:
+    - load: `--bottleneckRate` (v5–origin link only), `--queuePackets`, `--crossRate`, `--crossPayload`;
+    - loss: `--lossPgb`, `--lossPbg`;
+    - requests: `--interestLifetimeMs`, `--thresholds=0.9,0.95,1.0` (mixed users);
+    - outputs: `--runOut` (network counters) and `--nodeOut` (delay-aware learning trace);
+    - learner: `--aware*`.
+  - Calibration (8 Oct):
+    - Cross-traffic Data is **1075 B** on the wire, so offered backhaul load = crossRate × 1075 × 8 / 2 Mbps.
+    - Our own traffic adds about 0.045 utilisation.
+    - At 0.9 load the 1 KB RTT from v1 to the origin is 35 ms, and our maximum delay is 136 ms. Hence the 200 ms Interest lifetime.
+  - `ge-check --pgb --pbg --packets` checks the Gilbert–Elliott model against its closed forms (loss and mean burst).
 
 ## Pitfalls
 | Pitfall | Fix |
@@ -56,4 +70,8 @@ docker exec ndnsim bash -c '/root/scenario-build/tandem --policy=threshold --alp
 | Long runs slow down quadratically: the ns-3 event map fills with orphaned ndn-cxx timer events | Fixed by `build/env/ndn-cxx-scheduler-leak.patch` (design_notes). A fresh container gets it from `setup_ndnsim.sh`; check with `git -C /root/ndnSIM/ns-3/src/ndnSIM/ndn-cxx diff --stat` |
 | gdb can't attach to a running process in the container (no `CAP_SYS_PTRACE`) | Launch the run under gdb and `kill -INT` it to sample stacks |
 | A kill loop matching `*sweep.sh*` killed its own shell (7 Oct, again) | Match `readlink /proc/PID/exe` only, never command text |
+| A strategy's `afterReceiveData` override never runs | ndnSIM 2.9's NFD fork sends all Data through `satisfyInterest`, which calls `beforeSatisfyInterest`; override that (design_notes Q1) |
+| With all tandem links at one rate, only the first link queues (the stream is smoothed after it) | Congestion uses a single slower backhaul (`--bottleneckRate`) |
+| Python 3.8 in the container rejects backslashes inside f-string expressions | Use `%` formatting or a script file |
+| A run's file glob also matched per-node trace files | Check for the expected column, or keep traces in their own directory |
 | RED/CoDel queue discs never see NDN traffic (`NetDeviceTransport` calls `NetDevice::Send` directly) | Congestion = DropTail device queue size; make no AQM claims |
