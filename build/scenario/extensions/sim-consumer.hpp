@@ -27,7 +27,7 @@ public:
   SimConsumer();
 
   void
-  StartRequest(uint32_t requestId, uint32_t item);
+  StartRequest(uint32_t requestId, uint32_t item, double threshold);
 
   void
   OnData(std::shared_ptr<const ::ndn::Data> data) override;
@@ -53,6 +53,7 @@ private:
   bool m_busy = false;
   uint32_t m_requestId = 0;
   uint32_t m_item = 0;
+  double m_threshold = 0; // this request's user: minimum similarity accepted
   uint32_t m_attempt = 0;
   uint32_t m_timeouts = 0;
   uint32_t m_interestHops = 0;

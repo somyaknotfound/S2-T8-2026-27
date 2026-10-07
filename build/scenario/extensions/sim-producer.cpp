@@ -30,7 +30,8 @@ SimProducer::OnInterest(std::shared_ptr<const ::ndn::Interest> interest)
   }
 
   auto item = static_cast<uint32_t>(interest->getName().at(1).toNumber());
-  auto data = MakeAnswerData(interest->getName(), {item, 1.0, GetNode()->GetId()});
+  auto data = MakeAnswerData(interest->getName(),
+                             {item, 1.0, GetNode()->GetId(), HopLimitOf(*interest)});
 
   m_transmittedDatas(data, this, m_face);
   m_appLink->onReceiveData(*data);
