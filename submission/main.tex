@@ -4,9 +4,15 @@
 \documentclass[11pt,a4paper]{article}
 
 % ---------------------------------------------------------------- report metadata
+% final.tex defines \FinalReport and inputs this file; on its own this file is the progress report
 \newcommand{\CourseLine}{CS301 --- Computer Networks}
-\newcommand{\ReportLine}{Mini-Project Progress Report}
-\newcommand{\HeaderLeft}{CS301 Mini-Project Progress Report}
+\ifdefined\FinalReport
+  \newcommand{\ReportLine}{Mini-Project Final Report}
+  \newcommand{\HeaderLeft}{CS301 Mini-Project Final Report}
+\else
+  \newcommand{\ReportLine}{Mini-Project Progress Report}
+  \newcommand{\HeaderLeft}{CS301 Mini-Project Progress Report}
+\fi
 \newcommand{\HeaderRight}{Team T8 \textbar{} 241CS222, 241CS243, 241CS257}
 \newcommand{\RepoName}{somyaknotfound/S2-T8-2026-27}
 \newcommand{\RepoURL}{https://github.com/somyaknotfound/S2-T8-2026-27}
@@ -30,7 +36,8 @@
 \usepackage{algorithm}
 \usepackage{algpseudocode}
 \usepackage{tikz}
-\usetikzlibrary{positioning,arrows.meta,shapes.geometric,fit,calc}
+\usetikzlibrary{positioning,arrows.meta,shapes.geometric,shapes.multipart,fit,calc}
+\graphicspath{{figures/}} % figures/matlab/ once the MATLAB versions are in
 \usepackage{hyperref}
 
 \hypersetup{
@@ -267,7 +274,9 @@ in chronological order and compares them in Section~\ref{sec:lit-compare}.
 Section~\ref{sec:approach} presents the proposed approach: the system model in
 Section~\ref{sec:system}, the answer-or-forward policies in Section~\ref{sec:policies}, the
 delay-aware algorithm in Section~\ref{sec:algo} and the justification of the design in
-Section~\ref{sec:justify}.
+Section~\ref{sec:justify}.\ifdefined\FinalReport{} Section~\ref{sec:impl} describes the
+implementation, Section~\ref{sec:results} presents the results and compares them with the state of
+the art, and Section~\ref{sec:conc} concludes.\fi
 
 % ================================================================ 2 LITERATURE REVIEW
 \section{Literature Review}\label{sec:lit}
@@ -530,13 +539,417 @@ exploration stops once each bin is settled.
   \item \textbf{$\alpha$ becomes obsolete.} In Eq.~\eqref{eq:threshold}, raising $q_i$ moves
         probability from outcomes with delay $\ge 2\tau i$ to one with delay $2\tau(i-1)$, so the
         delay falls strictly in $\alpha$: $\alpha = 1$ is optimal.
-  \item \textbf{Privacy and adaptation.} Exclusion and the delay-aware rule keep the user's
-        threshold at the client; Eq.~\eqref{eq:rule} always serves an exact hit. Upstream
+  \item \textbf{Privacy and adaptation.} Exclusion and the delay-aware rule do not need the
+        user's threshold; Eq.~\eqref{eq:rule} always serves an exact hit. Upstream
         congestion or loss raises $\Dup$ and lowers $s^{*}_v$, so the cache answers locally more.
   \item \textbf{Platform.} NFD's Content Store matches exact names before the strategy runs, so our
         strategy does the similarity lookup and NFD is unchanged. In ndnSIM~2.9, NDN packets bypass
         ns-3's traffic control, so congestion is a DropTail queue; we claim nothing about RED or CoDel.
 \end{itemize}
+
+\ifdefined\FinalReport
+\subsection{Baselines}\label{sec:baselines}
+We compare the delay-aware rule with three references. The base paper's blind cache shows what
+happens without any change to the request. Exclusion with a fixed $\alpha$ is the fair baseline:
+its caches see the same information as the delay-aware ones, since neither learns $s$, and they use
+the same retry list, so only the answer rule differs, a fixed coin instead of
+Eq.~\eqref{eq:rule}. We sweep $\alpha \in \{0.1, 0.3, 0.5, 0.7, 0.9, 1\}$ and report, at each
+operating point, the best of them chosen after the fact, which no single deployed $\alpha$ could
+match. Threshold mode with $\alpha = 1$ is the oracle: it knows each user's $s$ and never causes a
+rejection, so it bounds what any rule without $s$ can achieve.
+\fi
+
+\ifdefined\FinalReport
+% ================================================================ 4 IMPLEMENTATION
+\section{Implementation}\label{sec:impl}
+
+\subsection{Software Architecture}
+The implementation extends ndnSIM~2.9~\cite{mastorakis2017ndnsim} without modifying NFD. It
+consists of six classes and a shared header in \code{build/scenario/extensions/} and one scenario,
+\code{tandem.cpp}, which builds the topology and writes one CSV row per request
+(Fig.~\ref{fig:classes}). \code{SimilarityStrategy} is installed as the forwarding strategy for
+the \code{/sim} prefix on every cache, so it sees each Interest after NFD's exact-name Content Store
+has missed. It asks the singleton \code{SimController}, which holds every cache's contents, for the
+best match and for the answer-or-forward decision. Each delay-aware cache has its own
+\code{DelayAwareState}, which owns $\Dup$, the per-hop round trip and the acceptance estimate
+$F_v$. \code{SimConsumer} runs the client's retry loop, \code{SimProducer} answers at the origin
+with the exact item, and \code{GilbertElliottErrorModel} drops packets on every link in the loss
+runs. \code{sim-common.hpp} holds the shared packet encoding.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[font=\scriptsize, x=4.12cm,
+    cls/.style={draw=black!60, rectangle split, rectangle split parts=2, align=left,
+                text width=3.35cm, inner sep=3pt, rectangle split part fill={blue!14, blue!3},
+                execute at begin node={\hyphenpenalty=10000\exhyphenpenalty=10000}},
+    base/.style={draw=black!45, dashed, fill=black!4, inner sep=3pt, text width=3.35cm,
+                 align=center, font=\scriptsize\itshape},
+    inh/.style={-{Triangle[open, length=2.2mm, width=2.2mm]}, thick, black!70},
+    use/.style={-{Stealth[length=1.8mm]}, dashed, black!70},
+    own/.style={{Diamond[length=2.6mm, width=2.2mm]}-, thick, black!70},
+    lab/.style={font=\tiny, fill=white, inner sep=1pt, align=center}]
+  \node[base] (b1) at (0,0) {BestRouteStrategy (NFD)};
+  \node[base] (b2) at (1,0) {App (ndnSIM)};
+  \node[base] (b3) at (2,0) {Producer (ndnSIM)};
+  \node[base] (b4) at (3,0) {ErrorModel (ns-3)};
+  \node[cls, anchor=north] (st) at (0,-0.95) {\textbf{SimilarityStrategy}
+    \nodepart{second}afterReceiveInterest()\\beforeSatisfyInterest()\\on PIT-entry expiry};
+  \node[cls, anchor=north] (co) at (1,-0.95) {\textbf{SimConsumer}
+    \nodepart{second}StartRequest($c$, $s$)\\SendAttempt()\\OnData(), OnTimeout()\\RetryOrGiveUp()};
+  \node[cls, anchor=north] (pr) at (2,-0.95) {\textbf{SimProducer}
+    \nodepart{second}OnInterest():\\exact item, $s' = 1$};
+  \node[cls, anchor=north] (ge) at (3,-0.95) {\textbf{GilbertElliott-}\\\textbf{ErrorModel}
+    \nodepart{second}$p_{gb}$, $p_{bg}$, good/bad state\\DoCorrupt()};
+  \node[cls, anchor=north] (da) at (0,-4.1) {\textbf{DelayAwareState}
+    \nodepart{second}$\Dup$ (SRTT), hop RTT\\$F_v$: 20 bins, isotonic\\ShouldAnswer()\\Threshold()};
+  \node[cls, anchor=north] (sc) at (1,-4.1) {\textbf{SimController}
+    \nodepart{second}config, cache contents\\BestMatch()\\ShouldAnswer()\\OnForwarded()\\OnUpstreamData()\\OnUpstreamExpired()\\OnRequestDone()};
+  \node[cls, anchor=north] (cm) at (2,-4.1) {\textbf{sim-common.hpp}
+    \nodepart{second}RequestParams\\Answer\\EncodeParams(), ParseParams()\\MakeAnswerData()};
+  \node[cls, anchor=north] (tn) at (3,-4.1) {\textbf{tandem.cpp} (scenario)
+    \nodepart{second}topology, links, queues\\cross traffic, loss\\apps, flags, CSV};
+  \foreach \c/\b in {st/b1, co/b2, pr/b3, ge/b4} \draw[inh] (\c.north) -- (\b.south);
+  \draw[use] (st.south) -- node[lab, pos=0.45] {BestMatch(),\\ShouldAnswer()} (sc.north west);
+  \draw[use, <->] (co.south) -- node[lab] {StartRequest() /\\OnRequestDone()} (sc.north);
+  \draw[own] ([yshift=-0.4cm]sc.north west) -- node[lab, above] {1 : $n$}
+        ([yshift=-0.4cm]sc.north west -| da.east);
+  \draw[use] (pr.south) -- node[lab] {encodes Data} (cm.north);
+  \draw[use] (tn.north) -- node[lab] {one per link\\direction} (ge.south);
+\end{tikzpicture}
+\caption{Class diagram of the implementation. Dashed boxes are ndnSIM, NFD and ns-3 base classes;
+open triangles mark inheritance and dashed arrows calls. The singleton \code{SimController} owns
+one \code{DelayAwareState} per cache (diamond).}
+\label{fig:classes}
+\end{figure}
+
+\subsection{Packet Encoding}
+Table~\ref{tab:packets} lists what our packets carry. Request parameters are text in the
+Interest's ApplicationParameters, the NDN packet format's place for them. Setting them appends a
+digest component to the name, so every answer is built under the full Interest name. Blind
+Interests carry no parameters at all: they stay byte-identical to the Stage~2 runs, and a blind
+cache never learns $s$. Exclusion Interests also carry \code{smin}, but exclusion caches ignore
+it; delay-aware Interests omit it and carry a HopLimit instead.
+
+\begin{table}[H]
+\centering
+\caption{Interest and Data fields used by the four policies}
+\label{tab:packets}
+\small
+\renewcommand{\arraystretch}{1.2}
+\begin{tabularx}{\linewidth}{@{}>{\raggedright}p{2.2cm}>{\raggedright}X>{\raggedright\arraybackslash}p{3.6cm}@{}}
+\toprule
+\textbf{Field} & \textbf{Content} & \textbf{Used by} \\
+\midrule
+Interest name & \code{/sim/<item>/<client>/<request>/<attempt>}, plus the parameters digest & all \\
+Parameters & \code{smin=}$s$ & threshold (read), exclusion (ignored) \\
+Parameters & \code{excl=}$v_j, v_k, \dots$: caches whose answers were rejected & exclusion, delay-aware \\
+HopLimit & 32 at the client; NFD decrements it at every node & delay-aware \\
+Data name & the full Interest name, so NDN's matching is unchanged & all \\
+Data content & served item $c'$, similarity $s'$, serving node, HopLimit seen there & all (HopLimit: delay-aware) \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Pseudocode}
+Algorithm~\ref{alg:consumer} is the client's request loop and Algorithm~\ref{alg:strategy} the
+strategy at a cache; the delay-aware decision itself is Algorithm~\ref{alg:delay-aware}. Every call
+to the decision draws exactly one random number, whatever the policy, so a blind run consumes the
+random stream exactly as in Stage~2 and replays it.
+
+\begin{algorithm}[H]
+\caption{Client request loop (\code{SimConsumer})}
+\label{alg:consumer}
+\begin{algorithmic}[1]
+\Require item $c$, user threshold $s$, retry interval $\delta$, Interest lifetime $L$, attempt cap $N$
+\State $k \gets 0$; \quad $E \gets \emptyset$; \quad $t_0 \gets t_{\mathrm{now}}$
+\Loop
+  \State $k \gets k + 1$; send Interest \code{/sim/}$c$\code{/}$u$\code{/}$r$\code{/}$k$ with
+         \code{smin=}$s$ (threshold) or \code{excl=}$E$ (exclusion, delay-aware)
+  \State wait for its Data, a Nack, or the lifetime $L$
+  \If{Data arrives with $s' \ge s$}
+    \State \Return delay $t_{\mathrm{now}} - t_0$ and attempts $k$ \Comment{\textit{accepted}}
+  \EndIf
+  \If{$k = N$} \State \Return censored \EndIf
+  \If{Data arrived (rejected)}
+    \State $E \gets E \cup \{\text{serving node}\}$; wait $\delta$ \Comment{\textit{timeouts retry at once}}
+  \EndIf
+\EndLoop
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\caption{Answer-or-forward at a cache (\code{SimilarityStrategy} and \code{SimController})}
+\label{alg:strategy}
+\begin{algorithmic}[1]
+\Procedure{afterReceiveInterest}{$I$} \Comment{\textit{called after NFD's Content Store misses}}
+  \If{this node is not a cache \textbf{or} $I$ is not under \code{/sim}}
+    \State forward by best route; \Return
+  \EndIf
+  \State $(c', s') \gets$ \Call{BestMatch}{node, item of $I$}; parse \code{smin}, \code{excl}, HopLimit
+  \State $x \sim U(0, 1)$ \Comment{\textit{one draw under every policy}}
+  \State answer $\gets$ blind: $x < \alpha$; \ threshold: $x < \alpha \wedge s' \ge s_{\min}$; \
+         exclusion: $x < \alpha \wedge v \notin E(I)$; \ delay-aware: Algorithm~\ref{alg:delay-aware}
+  \If{answer}
+    \State sendData(Data named $\mathrm{name}(I)$ carrying $c'$, $s'$, node, HopLimit)
+  \Else
+    \State note the forward time of $\mathrm{name}(I)$; forward by best route
+  \EndIf
+\EndProcedure
+\Procedure{beforeSatisfyInterest}{$D$} \Comment{\textit{returning Data}}
+  \State update $\Dup$ from the forward time of $\mathrm{name}(D)$; continue as best route
+\EndProcedure
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Key Engineering Challenges and Solutions}
+\begin{itemize}
+  \item \textbf{Exact-name Content Store.} NFD consults its Content Store before the strategy and
+        matches only exact names, so it cannot find the nearest item. The similarity lookup lives in
+        our strategy and \code{SimController}; NFD's own store is set to one entry and never hits,
+        because every request name is unique.
+  \item \textbf{A hook that never fires.} In ndnSIM~2.9's NFD, returning Data reaches the strategy
+        through \code{beforeSatisfyInterest}; the documented \code{afterReceiveData} is never
+        called. The delay-aware cache samples $\Dup$ there, and counts expired Interests through the
+        forwarder's expiry signal.
+  \item \textbf{An event leak in ndnSIM.} The ndn-cxx scheduler bundled with ndnSIM scheduled a new
+        ns-3 event without removing the pending one, so orphaned events piled up and long runs
+        slowed down quadratically. A short patch removes the pending event first. It changes
+        no output: 216 runs are byte-identical before and after.
+        % research/results/stage3/sweep.md ("216 runs are byte-identical").
+  \item \textbf{Optimized build.} ndnSIM's optimized libraries crash the first time our strategy
+        answers, while the debug build runs cleanly. All results therefore come from the debug
+        build, run in parallel.
+  \item \textbf{Replaying earlier stages.} Because blind Interests are unchanged and the decision
+        draws one random number per call, each new stage first replays earlier runs byte for byte
+        before its sweep starts.
+        % research/results/stage4/sweep.md ("five S2/S3 runs replayed byte-for-byte").
+  \item \textbf{No AQM for NDN.} ndnSIM's NetDevice transport calls the device directly, bypassing
+        ns-3's traffic-control layer; congestion therefore comes from DropTail device queues.
+\end{itemize}
+
+% ================================================================ 5 RESULTS
+\section{Results and Analysis}\label{sec:results}
+
+\subsection{Simulation Parameters, Scenarios and Metrics}
+Table~\ref{tab:setup} lists the parameters. Three scenarios build on each other. Stage~2 reproduces
+the base paper with blind caches, either redrawing cache contents on every attempt (the model's
+assumption) or keeping them for the whole retry chain. Stage~3 adds threshold-carrying and
+exclusion Interests on the same grid. Stage~4 adds the congested backhaul or burst loss, users
+with mixed thresholds, and the delay-aware rule.
+% Run counts: research/results/stage2-4/sweep.md (120; 360 + 960; 485 runs).
+
+\begin{table}[H]
+\centering
+\caption{Simulation parameters}
+\label{tab:setup}
+\small
+\renewcommand{\arraystretch}{1.2}
+\begin{tabularx}{\linewidth}{@{}>{\raggedright}p{3.3cm}>{\raggedright\arraybackslash}X@{}}
+\toprule
+\textbf{Parameter} & \textbf{Value} \\
+\midrule
+Simulator & ns-3 with ndnSIM 2.9 (NFD 22.02), debug build \\
+Topology & tandem of 5 caches and an origin; client $c_i$ on cache $v_i$ \\
+Links & 1 Gbps, 1~ms; Stage~4: backhaul $v_5$--origin 2~Mbps; DropTail queues of 100 packets \\
+Catalogue, cache size & $C = 100$ items, $B = 10$; similarity $1 - |a-b|/99$ \\
+Users & Stages 2--3: one threshold $s$ per cell; Stage~4: $s$ uniform over \{0.9, 0.95, 1.0\}, or fixed $s = 0.95$ \\
+Retries & $\delta = 10$~ms; cap of 5000 attempts; Interest lifetime 2~s (Stages 2--3), 200~ms (Stage~4) \\
+Cross traffic & Poisson Interests from $v_1$; 1075~B Data from the origin; offered backhaul load 0 to 0.95 \\
+Loss & Gilbert--Elliott on both directions of every link; mean burst 3.3 packets; mean loss 1, 5, 10\% \\
+Policies & blind $\alpha \in \{0.1, 0.5, 0.9, 1\}$; threshold; exclusion $\alpha \in \{0.1, 0.3, \dots, 0.9, 1\}$; delay-aware \\
+Runs & 120 (Stage~2), $360 + 960$ (Stage~3), 485 (Stage~4); at least 5 seeds per cell, 25 for threshold and exclusion in Stage~3; Stage~4 drops the first 500 of 2000 requests per run as warm-up \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The metrics are:
+\begin{itemize}
+  \item the \emph{similar-content delivery delay}, from the first Interest to the accepted answer, as the mean with a 95\% confidence interval over runs, plus its 95th and 99th percentiles;
+  \item attempts per request, and the share of requests censored at the cap;
+  \item \emph{Interest hops}: links climbed by all answered attempts, our measure of upstream traffic;
+  \item the delivered similarity, and Jain's fairness index over the clients' mean delays;
+  \item in Stage~4, rejections and timeouts per request, and the mean delay of the cross traffic.
+\end{itemize}
+
+\subsection{Reproducing the Base Paper}
+With contents redrawn on every attempt, the simulated mean delay lies inside its 95\% confidence
+interval of the analytical value in every one of the 18 distinct configurations
+(Fig.~\ref{fig:stage2}). At $\alpha = 0.9$ and $s = 1$, for example, ns-3 gives
+$81.6 \pm 3.6$~ms against 80.6~ms. When contents persist across a request's retries, the same
+cell gives $14{,}522 \pm 2{,}070$~ms: 22\% of requests reach the 5000-attempt cap, and the 99th
+percentile is 51.2~s. That is still inside the confidence interval of the exact persistent
+expectation. The base paper's model underestimates this delay by a factor of about 180, a lower
+bound because of the cap, since it treats each retry as an independent draw.
+% research/results/stage2/analysis.md: 81.59 +/- 3.57 vs 80.62; 14521.56 +/- 2069.77, censored
+% 0.220, p99 51186.5; 14521.56 / 80.62 = 180.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\linewidth]{stage2_delay}
+\caption{Stage~2: simulated mean delay (points, 95\% CI) and the analytical value (dashed) against
+the required similarity, with contents redrawn on every attempt (left) or persisting across
+retries (right).}
+\label{fig:stage2}
+\end{figure}
+
+\subsection{Bounding Retries}
+Table~\ref{tab:stage3} compares the three policies in the hardest cell of Stage~2. Threshold-carrying
+Interests take exactly one attempt, and no threshold-mode request took longer than 10.0077~ms,
+just over the 10~ms round trip to the origin. Exclusion keeps the caches blind and still bounds a
+request at six attempts. Both also cut upstream traffic: blind requests climb 158 links on
+average, against 5.0 for exclusion and 2.4 for threshold (Fig.~\ref{fig:stage3}).
+% research/results/stage3/summary.csv (alpha 0.9, s 1.0, per-request) and analysis.md gates 2-3.
+
+\begin{table}[H]
+\centering
+\caption{Stage~3, $\alpha = 0.9$, $s = 1$, contents persisting across retries}
+\label{tab:stage3}
+\small
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+\textbf{Policy} & \textbf{Mean (ms)} & \textbf{p99 (ms)} & \textbf{Max attempts} & \textbf{Interest hops} & \textbf{Jain} \\
+\midrule
+Blind (base paper) & 14{,}522 & 51{,}187 & 5000 & 158.1 & 0.48 \\
+Exclusion & 32.9 & 80.0 & 6 & 5.0 & 0.80 \\
+Threshold & 4.84 & 10.0 & 1 & 2.4 & 0.85 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The threshold closed form, Eq.~\eqref{eq:threshold}, holds at packet level. With 25 runs per
+cell, all 24 threshold cells contain the closed form in their 95\% confidence interval, with a
+largest $|t|$ of 1.61. Exclusion matches its exact expectation in 22 of 24 cells. Both misses are
+cells whose contents are drawn once per run, where a few shared cache configurations dominate; the
+cells with contents drawn per request show no such bias. As Section~\ref{sec:justify} predicts, threshold-mode delay falls monotonically in $\alpha$:
+at $s = 1$ it is 5.89, 5.33, 4.84 and 4.72~ms for $\alpha$ = 0.1, 0.5, 0.9 and 1. Blind caching is
+worst at $\alpha = 1$, where 89\% of requests at $s = 1$ are censored.
+% research/results/stage3/analysis.md (gate 1b, 1c) and summary.csv (threshold, per-request, s 1.0;
+% blind 1.0 1.0 per-request censored 0.894).
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\linewidth]{stage3_policies}\\[4pt]
+\includegraphics[width=0.49\linewidth]{stage3_threshold_alpha}\hfill
+\includegraphics[width=0.49\linewidth]{stage3_hops}
+\caption{Stage~3. Top: mean and 99th-percentile delay of the three policies against $s$. Bottom
+left: threshold-mode delay against $\alpha$, with Eq.~\eqref{eq:threshold} dashed. Bottom right:
+upstream Interest hops per request.}
+\label{fig:stage3}
+\end{figure}
+
+\subsection{Congestion and Burst Loss}
+Under backhaul congestion and burst loss, the delay-aware rule beats the best fixed-$\alpha$
+exclusion cache at every point, by a paired difference whose 95\% confidence interval excludes
+zero (Table~\ref{tab:stage4}, Fig.~\ref{fig:stage4}). No fixed $\alpha$ is right everywhere. The
+best is $\alpha = 0.1$ up to 0.9 load but $\alpha = 1$ at 0.95; under loss it is 0.1, then 0.9,
+then 0.7. Without ever seeing $s$, the delay-aware rule closes 43--50\% of the gap between the best
+fixed $\alpha$ and the oracle under load, and 28--50\% under loss. When every user has the same
+$s = 0.95$, it matches the oracle: 1.16~ms against 1.17~ms on an idle network, and 97\% of the gap
+closed at 0.9 load.
+% research/results/stage4/analysis.md (load, loss and fixed tables).
+
+\begin{table}[H]
+\centering
+\caption{Stage~4: mean delay (ms) after warm-up; $\Delta$ = delay-aware minus the best fixed
+$\alpha$, paired over runs}
+\label{tab:stage4}
+\small
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+\textbf{Point} & \textbf{Delay-aware} & \textbf{Best fixed $\alpha$} & \textbf{$\Delta$ (95\% CI)} & \textbf{Oracle} & \textbf{Gap closed} \\
+\midrule
+Load 0 & 5.02 & 7.78 ($\alpha$ = 0.1) & $-2.76 \pm 0.31$ & 2.24 & 50\% \\
+Load 0.6 & 6.89 & 9.86 ($\alpha$ = 0.1) & $-2.97 \pm 0.37$ & 3.03 & 43\% \\
+Load 0.9 & 11.15 & 16.80 ($\alpha$ = 0.1) & $-5.65 \pm 1.33$ & 5.34 & 49\% \\
+Load 0.95 & 15.10 & 22.12 ($\alpha$ = 1) & $-7.02 \pm 1.57$ & 7.41 & 48\% \\
+Loss 1\% & 13.78 & 19.57 ($\alpha$ = 0.1) & $-5.79 \pm 4.75$ & 6.50 & 44\% \\
+Loss 5\% & 48.32 & 59.23 ($\alpha$ = 0.9) & $-10.91 \pm 6.35$ & 26.10 & 33\% \\
+Loss 10\% & 115.30 & 136.08 ($\alpha$ = 0.7) & $-20.77 \pm 14.31$ & 61.82 & 28\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.9\linewidth]{stage4_load}\\[2pt]
+\includegraphics[width=0.9\linewidth]{stage4_loss}
+\caption{Stage~4: mean delay of every fixed-$\alpha$ exclusion cache, the delay-aware rule, the
+oracle and the base paper's blind cache, against backhaul load (top) and loss per link (bottom).}
+\label{fig:stage4}
+\end{figure}
+
+Fig.~\ref{fig:learned} shows what the caches learned. $\Dup$ rises with load at every cache, and
+the learned threshold $s^{*}$ falls: at $v_1$, from 0.97 when idle to 0.88 at 0.95 load. On an idle
+network, caches near the origin are the strictest ($s^{*} \approx 1$), as Section~\ref{sec:justify}
+predicts. At 0.95 load this reverses: $v_5$, whose forwards all cross the backhaul, measures
+$\Dup = 23.5$~ms against 11.6~ms at $v_1$, and becomes the most lenient cache ($s^{*} = 0.77$). The
+policies barely affect the cross traffic: its mean delay differs by at most 5.5~ms between them at
+0.95 load, and is lowest under the delay-aware rule (50.9~ms, against 56.4~ms for the oracle, which
+forwards more). The price of learning is rejections: they rise from 0.13 to 0.50 per request as
+load grows, because answering more locally is the point; the oracle has none.
+% research/results/stage4/nodes.csv and analysis.md ("All cells": cross delay, rejections/req).
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\linewidth]{stage4_learned}\\[2pt]
+\includegraphics[width=0.9\linewidth]{stage4_cross}
+\caption{Top: upstream delay $\Dup$ and learned threshold $s^{*}$ of each delay-aware cache against
+backhaul load. Bottom: mean delay of the cross traffic under each policy.}
+\label{fig:learned}
+\end{figure}
+
+\subsection{Comparison with the State of the Art}
+The base paper is the only earlier work that models the user-level delay over a path of similarity
+caches; the others in Table~\ref{tab:compare} decide what a single cache, or a set of edge caches,
+should store, and cannot be run on an NDN path without an answer-or-forward rule. We therefore
+compare against the base paper twice: against its analytical model, which our corrected version
+matches in all 18 configurations of its own setting, and against its blind policy, run at packet
+level. Table~\ref{tab:sota} summarises the second comparison. Blind caching with $\alpha = 0.5$ is
+3.4 to 7.6 times slower than the delay-aware rule under load, and 3.2 to 4.2 times slower under
+loss. Our
+policies also cut the base paper's heavy tail from tens of seconds to tens or even single
+milliseconds.
+% research/results/stage4/analysis.md ("All cells": blind-a0.5 vs delay-aware), stage3/summary.csv.
+
+\begin{table}[H]
+\centering
+\caption{Mean delay (ms) of the base paper's blind policy against ours}
+\label{tab:sota}
+\small
+\renewcommand{\arraystretch}{1.2}
+\begin{tabularx}{\linewidth}{@{}X*{4}{>{\raggedleft\arraybackslash}p{2.5cm}}@{}}
+\toprule
+\textbf{Scenario} & \textbf{Blind, $\alpha = 0.5$ (base paper)} & \textbf{Best fixed-$\alpha$ exclusion} &
+\textbf{Delay-aware (ours)} & \textbf{Threshold (oracle)} \\
+\midrule
+Stage 4, idle & 38.13 & 7.78 & 5.02 & 2.24 \\
+Stage 4, load 0.95 & 51.86 & 22.12 & 15.10 & 7.41 \\
+Stage 4, loss 10\% & 371.89 & 136.08 & 115.30 & 61.82 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+% ================================================================ 6 CONCLUSIONS
+\section{Conclusions and Future Work}\label{sec:conc}
+This project set out to make similarity caching work in a Named Data Network whose users reject
+answers that are not similar enough and retry, and whose upstream links congest and lose packets.
+We built similarity caching into ns-3 with ndnSIM without changing NFD, and reproduced the base
+paper's corrected model in all 18 configurations of its setting. We then showed that real caches,
+whose contents persist across retries, make the model underestimate the delay at least 180 times.
+Threshold-carrying Interests remove this tail, need one attempt, match their closed form, and make
+$\alpha = 1$ optimal. Exclusion bounds attempts while keeping caches blind. Under congestion and
+burst loss, our delay-aware rule, derived from the delivery delay itself, beats every fixed
+$\alpha$ without seeing the user's threshold, and matches the oracle when all users agree.
+
+The work has limits. It uses one tandem topology, a synthetic catalogue and the debug build of
+ndnSIM, and it models congestion with DropTail queues because NDN traffic bypasses RED and CoDel
+in ndnSIM. Future work is to evaluate general topologies and a real image dataset, to drop the
+requirement that caches agree on a similarity measure, and to run the same rule over ns-3's
+underwater acoustic module, where round trips of seconds make every avoided retry far more
+valuable.
+\fi
 
 % ================================================================ REFERENCES
 \begin{thebibliography}{99}
