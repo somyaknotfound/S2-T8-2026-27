@@ -97,7 +97,16 @@
    - Upload `stage2_summary.csv`, `stage3_summary.csv`, `stage4_summary.csv` and `stage4_nodes.csv` (renamed from `research/results/stage*/`), then run both scripts.
    - Save the pasted output of `delay_models` as `research/results/matlab/model_check.txt`; copy `matlab_figures/*` to `submission/figures/matlab/`.
    - Expected from the Python model: exact (not Monte Carlo) persistent ratios of 2.13× at α = 0.5 and 1705.7× at α = 0.9, s = 1.
-3. **S5 (final report, 2 Nov):** Implementation (class diagram + pseudocode) and Results; the material is in design_notes, `results/stage2–4` and the figures (MATLAB versions once they exist).
+3. **S5 (final report, 2 Nov):** **drafted on 8 Oct; the team reviews it.** Compile `submission/final.tex`.
+   - It defines `\FinalReport` and inputs `main.tex`, whose final-only parts sit in `\ifdefined\FinalReport` blocks. `main.tex` alone still builds the progress report unchanged (2/3/2 pages).
+   - Final-only additions:
+     - §3.5 Baselines;
+     - §4 Implementation: class diagram, packet-field table, Algorithms 2–3, engineering challenges;
+     - §5 Results: parameters table, Stages 2–4 with the 8 figures, the Stage 3 and Stage 4 tables, and a state-of-the-art comparison;
+     - §6 Conclusions (215 words, limit 250).
+   - Measured lengths: intro 2.08, lit review 3.05, approach 2.22, implementation 3.73, results 5.20 pages; all minimums met. No overfull boxes, no undefined references.
+   - The figures are still the Python PDFs. Once the MATLAB versions are in `submission/figures/matlab/`, change `\graphicspath` in `main.tex`.
+4. **Defence pack:** `research/context/defence_pack.md` holds the headline numbers and the 10 hardest viva questions with answers.
 - Report note: for C = 100, s = 0.99 and s = 1.0 give identical results (similarity step = 1/99). Show s = 1.0 only, or say so.
 - Report note: S4 runs one topology and a synthetic catalogue. Name these limitations in the conclusions.
 
@@ -116,3 +125,4 @@
   - Sweep: 485 runs, all gates pass.
 - 2026-10-08 — Progress report drafted in `submission/main.tex` within the page limits, with 19 verified references.
 - 2026-10-08 — MATLAB scripts written (`build/matlab/`); they are waiting for a MATLAB Online run.
+- 2026-10-08 — Committed `8edbc4f`. Final report drafted (`submission/final.tex`) and defence pack written.
