@@ -150,6 +150,11 @@ This is the only change made to ndnSIM itself. It lives in `build/env/ndn-cxx-sc
   - a retry naming this cache is a rejection;
   - no retry within 1 s is an acceptance;
   - a retry *not* naming it means the answer was lost, which is not counted.
+- **Known weakness (found 12 Oct in the traces, not fixed):** the isotonic fit pools every bin below 0.90 with the [0.90, 0.95) bin.
+  - Why: a best match below 0.90 is rare, so those bins have almost no observations. Their 1/2 prior sits above the bin's fitted value, and pool-adjacent-violators merges them. Logged example (v5, 0.95 load): F0…F18 = 0.205, F19 = 0.38.
+  - Effect: when D_up is high enough that the [0.90, 0.95) bin is worth answering, every lower bin is too, so `Threshold()` returns 0 and the cache answers whatever it holds, including items no user in {0.9, 0.95, 1.0} accepts.
+  - How often: `research/results/stage4/convergence.md`, last table. Never up to 0.8 load; 5–20% of snapshots at 0.95.
+  - A fix would be to treat bins with no observations of their own as F = 0. That changes the algorithm, so S4 would have to be re-run.
 - **Wire format:** delay-aware Interests carry `excl=` but no `smin` (the cache never learns the user's threshold), plus a HopLimit.
   - The other policies' packets are unchanged: S2/S3 runs still replay byte-for-byte.
 

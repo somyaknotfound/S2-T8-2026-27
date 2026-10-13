@@ -884,7 +884,8 @@ Fig.~\ref{fig:learned} shows what the caches learned. $\Dup$ rises with load at 
 the learned threshold $s^{*}$ falls: at $v_1$, from 0.97 when idle to 0.88 at 0.95 load. On an idle
 network, caches near the origin are the strictest ($s^{*} \approx 1$), as Section~\ref{sec:justify}
 predicts. At 0.95 load this reverses: $v_5$, whose forwards all cross the backhaul, measures
-$\Dup = 23.5$~ms against 11.6~ms at $v_1$, and becomes the most lenient cache ($s^{*} = 0.77$). The
+$\Dup = 23.5$~ms against 11.6~ms at $v_1$, and has the lowest mean threshold (0.77); that mean
+hides two modes, discussed below. The
 policies barely affect the cross traffic: its mean delay differs by at most 5.5~ms between them at
 0.95 load, and is lowest under the delay-aware rule (50.9~ms, against 56.4~ms for the oracle, which
 forwards more). The price of learning is rejections: they rise from 0.13 to 0.50 per request as
@@ -896,8 +897,39 @@ load grows, because answering more locally is the point; the oracle has none.
 \includegraphics[width=\linewidth]{stage4_learned}\\[2pt]
 \includegraphics[width=0.9\linewidth]{stage4_cross}
 \caption{Top: upstream delay $\Dup$ and learned threshold $s^{*}$ of each delay-aware cache against
-backhaul load. Bottom: mean delay of the cross traffic under each policy.}
+backhaul load, averaged over the measured part of each run. Bottom: mean delay of the cross traffic
+under each policy.}
 \label{fig:learned}
+\end{figure}
+
+\paragraph{Does the learned state settle?}
+Fig.~\ref{fig:convergence} follows the caches through a run. Up to 0.8 load the state is steady:
+after warm-up the mean delay shows no significant drift at any load, and no cache's $s^{*}$ changes
+by more than 0.03 between request 1000 and request 2000. The delay-aware delay still falls a little
+within a run at these loads, by 0.3 to 0.6~ms between the first and the last third. That is inside
+the noise at each load but has the same sign at all four, so the reported means are, if anything,
+slightly pessimistic for our rule.
+
+At high load the threshold is not a single value. $\Dup$ follows the backhaul queue, and when it is
+high the rule switches to answering whatever the cache holds ($s^{*}$ below 0.5). At 0.95 load this
+happens in 20\% of the snapshots at $v_5$ and in 5 to 8\% at the other caches; at 0.9 load in at
+most 8\%; below that, never. In those snapshots $\Dup$ averages 23 to 48~ms, against 11 to 17~ms
+otherwise, so the mean of 0.77 at $v_5$ is a mixture of about 0.95 and 0. This is the rule acting
+as a congestion valve, but it also exposes a weakness. Similarities below 0.9 are rarely the best
+match, so the monotone fit gives them the acceptance estimate of the bin above, and in this mode a
+cache also sends answers that no user in our population accepts. At 0.95 load the network itself is
+not in steady state either: the oracle's delay grows by $2.5 \pm 2.5$~ms between the first and the
+last third of a run. The comparison there is still fair, because every policy uses the same seeds
+and the same interval, but the absolute delays depend on the run length.
+% research/results/stage4/convergence.md (build/analysis/stage4_traces.py).
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\linewidth]{stage4_convergence}
+\caption{Delay-aware caches through a run at three loads (grey: warm-up). Top: mean delay per 100
+requests with 95\% confidence bands, against the oracle and the best fixed $\alpha$. Bottom: each
+cache's learned threshold, averaged over five runs.}
+\label{fig:convergence}
 \end{figure}
 
 \subsection{Comparison with the State of the Art}
@@ -945,7 +977,7 @@ $\alpha$ without seeing the user's threshold, and matches the oracle when all us
 
 The work has limits. It uses one tandem topology, a synthetic catalogue and the debug build of
 ndnSIM, and it models congestion with DropTail queues because NDN traffic bypasses RED and CoDel
-in ndnSIM. Future work is to evaluate general topologies and a real image dataset, to drop the
+in ndnSIM. At the highest load, the learned thresholds follow the queue instead of settling. Future work is to evaluate general topologies and a real image dataset, to drop the
 requirement that caches agree on a similarity measure, and to run the same rule over ns-3's
 underwater acoustic module, where round trips of seconds make every avoided retry far more
 valuable.

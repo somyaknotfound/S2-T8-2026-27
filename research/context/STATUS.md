@@ -83,7 +83,13 @@
   - D_up rises with load at every cache.
   - s* falls with load (v1: 0.97 → 0.88).
   - At low load, caches near the origin are strictest (s* ≈ 1).
-  - **At 0.95 load this reverses:** v5 is the most lenient (s* = 0.77), because all of its forwards cross the congested backhaul (D_up 23.5 ms vs 11.6 ms at v1). The plan predicted only the first part; report both.
+  - **At 0.95 load this reverses:** v5 has the lowest *mean* s* (0.77), because all of its forwards cross the congested backhaul (D_up 23.5 ms vs 11.6 ms at v1). The plan predicted only the first part; report both.
+  - **That mean is a mixture, not a settled value (found 12 Oct; `stage4/convergence.md`).** s* flips between about 0.95 and 0 when D_up spikes: in 20% of v5's post-warm-up snapshots at 0.95 load, 5–8% at the other caches, at most 8% at 0.9 load, never below. Never quote 0.77 as "the threshold v5 learned".
+- **Convergence (12 Oct):**
+  - Delay-aware delay has no significant drift after warm-up at any load (last third − first third, paired CI includes 0 at 6/6 loads).
+  - Up to 0.9 load, no cache's s* moves more than 0.03 between requests 1000 and 2000.
+  - At 0.95 load the network is not in steady state: the oracle's delay drifts +2.5 ± 2.5 ms within a run.
+- **Known weakness (12 Oct):** bins below 0.90 are rarely observed, so the isotonic fit pools them with the [0.90, 0.95) bin. When D_up is high the cache therefore answers whatever it holds, including items no user accepts. Not fixed; a fix means re-running S4.
 - **Externality:** cross-traffic delay differs by ≤ 5.5 ms between policies even at 0.95 load. Delay-aware is lowest there (50.9 ms vs 56.4 ms for the oracle, which forwards more).
 - **Learning cost:** the learner's rejections per request rise with load, 0.13 → 0.50, because answering more is the point. The oracle has 0.
 
@@ -97,6 +103,7 @@
    - Upload `stage2_summary.csv`, `stage3_summary.csv`, `stage4_summary.csv` and `stage4_nodes.csv` (renamed from `research/results/stage*/`), then run both scripts.
    - Save the pasted output of `delay_models` as `research/results/matlab/model_check.txt`; copy `matlab_figures/*` to `submission/figures/matlab/`.
    - Expected from the Python model: exact (not Monte Carlo) persistent ratios of 2.13× at α = 0.5 and 1705.7× at α = 0.9, s = 1.
+   - **`build/matlab/trace_replay.m` (12 Oct, also not run yet)** is planned use 3. Upload `stage4_trace_delay.csv` and `stage4_trace_nodes.csv` (from `research/results/stage4/trace_*.csv`; per-run rows, 100 requests each). It writes `stage4_convergence.pdf/.png` and `stage4_replay.gif` (one run played back; `LOAD` and `RUN` are set at the top), and prints the share of snapshots with s* < 0.5, which must match the last table of `convergence.md`.
 3. **S5 (final report, 2 Nov):** **drafted on 8 Oct; the team reviews it.** Compile `submission/final.tex`.
    - It defines `\FinalReport` and inputs `main.tex`, whose final-only parts sit in `\ifdefined\FinalReport` blocks. `main.tex` alone still builds the progress report unchanged (2/3/2 pages).
    - Final-only additions:
@@ -104,7 +111,8 @@
      - §4 Implementation: class diagram, packet-field table, Algorithms 2–3, engineering challenges;
      - §5 Results: parameters table, Stages 2–4 with the 8 figures, the Stage 3 and Stage 4 tables, and a state-of-the-art comparison;
      - §6 Conclusions (215 words, limit 250).
-   - Measured lengths: intro 2.08, lit review 3.05, approach 2.22, implementation 3.73, results 5.20 pages; all minimums met. No overfull boxes, no undefined references.
+   - Measured lengths (12 Oct): intro 2.08, lit review 3.05, approach 2.22, implementation 3.73, results 6.13 pages; 23 pages in all; conclusions 228 words. All minimums met. No overfull boxes, no undefined references.
+   - §5.4 now has a "Does the learned state settle?" paragraph and `stage4_convergence` (Fig. 8), from `stage4/convergence.md`.
    - The figures are still the Python PDFs. Once the MATLAB versions are in `submission/figures/matlab/`, change `\graphicspath` in `main.tex`.
 4. **Defence pack:** `research/context/defence_pack.md` holds the headline numbers and the 10 hardest viva questions with answers.
 - Report note: for C = 100, s = 0.99 and s = 1.0 give identical results (similarity step = 1/99). Show s = 1.0 only, or say so.
@@ -126,3 +134,5 @@
 - 2026-10-08 — Progress report drafted in `submission/main.tex` within the page limits, with 19 verified references.
 - 2026-10-08 — MATLAB scripts written (`build/matlab/`); they are waiting for a MATLAB Online run.
 - 2026-10-08 — Committed `8edbc4f`. Final report drafted (`submission/final.tex`) and defence pack written.
+- 2026-10-09 — Proposal defence. The submitted proposal is `submission/proposal_257_222_243.pdf`; it is kept out of git because the repo is public and the PDF has phone numbers.
+- 2026-10-12 — Pushed `244ae85`. Trace analysis added (`build/analysis/stage4_traces.py`): convergence checked, the bimodal s* at high load found, and the final report, defence pack and design notes corrected.
