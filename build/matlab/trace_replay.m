@@ -1,12 +1,14 @@
 % trace_replay.m - the delay-aware caches as a run unfolds: a convergence figure and a replay.
 %
-% MATLAB Online: upload these files next to this script (rename as shown), then run trace_replay.
+% MATLAB Online: run trace_replay from a folder holding either the repository's results
+% folders as they are (stage4/trace_*.csv, directly or under results/ or research/results/)
+% or these renamed copies.
 %   stage4_trace_delay.csv   <- research/results/stage4/trace_delay.csv
 %   stage4_trace_nodes.csv   <- research/results/stage4/trace_nodes.csv
 % It writes to ./matlab_figures/ (copy the contents to submission/figures/matlab/):
 %   stage4_convergence.pdf/.png   three loads, mean over the five runs
 %   stage4_replay.gif             ONE run played back, 100 requests per frame
-% Base MATLAB only (R2020a or later).
+% Base MATLAB only (R2020b or later, for a legend placed outside the tiles).
 %
 % Each trace row covers 100 requests of one run. The delay rows hold the mean delay of those
 % requests; the node rows hold each cache's upstream delay D_up and learned threshold s* at the
@@ -50,7 +52,10 @@ for col = 1:numel(loads)
     x = loads(col);
     ax = nexttile(tl, col);
     hold(ax, 'on');
-    shown = series_styles(K, best_fixed(D, x, WARMUP));
+    best = best_fixed(D, x, WARMUP);
+    shown = series_styles(K, best);
+    % one legend for all three panels, so each panel's own best alpha goes in its title
+    shown(3).name = 'best fixed \alpha (exclusion, chosen after the fact)';
     for i = 1:numel(shown)
         R = D(near(D.offered_load, x) & D.policy == shown(i).policy, :);
         G = groupsummary(R, 'request', {'mean', 'std'}, 'mean_ms');
@@ -63,9 +68,14 @@ for col = 1:numel(loads)
     end
     style_axes(ax, K);
     shade_warmup(ax, K, WARMUP);
-    title(ax, sprintf('Offered backhaul load %g', x), 'FontWeight', 'normal', 'FontSize', 9);
+    title(ax, sprintf('Offered backhaul load %g, best fixed \\alpha = %s', x, ...
+                      extractAfter(best, '-a')), 'FontWeight', 'normal', 'FontSize', 9);
     ylabel(ax, 'Mean delay per 100 requests (ms)');
-    legend(ax, 'Location', 'northeast', 'FontSize', 7);
+    if col == 1
+        % outside the panels: inside, it covered the best-fixed-alpha line at load 0
+        lgTop = legend(ax, 'Orientation', 'horizontal', 'FontSize', 8);
+        lgTop.Layout.Tile = 'north';
+    end
 
     ax = nexttile(tl, numel(loads) + col);
     hold(ax, 'on');
@@ -237,5 +247,32 @@ tf = abs(x - v) < 1e-9;
 end
 
 function T = load_csv(name)
-T = readtable(name, 'TextType', 'string', 'Delimiter', ',');
+T = readtable(find_csv(name), 'TextType', 'string', 'Delimiter', ',');
+end
+
+function path = find_csv(name)
+% 'stageN_<file>.csv' as a renamed upload, or the repository's own layout stageN/<file>.csv,
+% directly, under results/ or under research/results/, from the current folder or this
+% script's folder. A renamed copy anywhere on the MATLAB path is found too.
+parts = split(string(name), '_');
+stage = parts(1);
+file = strjoin(parts(2:end), '_');
+for root = [string(pwd), string(fileparts(mfilename('fullpath')))]
+    for sub = ["", "results", fullfile("research", "results")]
+        for candidate = [fullfile(root, sub, name), fullfile(root, sub, stage, file)]
+            if isfile(candidate)
+                path = candidate;
+                return
+            end
+        end
+    end
+end
+onpath = which(name);
+if ~isempty(onpath)
+    path = string(onpath);
+    return
+end
+error(['Cannot find %s. Upload the repository''s research/results folder with its stage ', ...
+       'subfolders (it needs %s/%s), or a copy of that file renamed to %s, then run the ', ...
+       'script from the folder that holds it. Current folder: %s'], name, stage, file, name, pwd);
 end

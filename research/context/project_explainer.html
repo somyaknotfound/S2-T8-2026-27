@@ -1,0 +1,841 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body>
+<title>Threshold-Aware Similarity Caching</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+<style>
+/* Layout: a reading column with a sticky contents rail on wide screens; diagrams and charts span the column. */
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --fg: #141820;
+  --fg-muted: #4e5867;
+  --rule: #dce1e8;
+  --code-bg: #eceff4;
+  --accent: #2a78d6;
+  --c-aware: #2a78d6;
+  --c-blind: #eb6834;
+  --c-oracle: #1a9c6d;
+  --c-excl: #4a3aa7;
+  --c-model: #7a8494;
+  --tint-ours: rgba(42, 120, 214, 0.12);
+  --tint-nfd: rgba(74, 58, 167, 0.09);
+  --tint-ns3: rgba(78, 88, 103, 0.08);
+  --warn: #9a5b00;
+  --font-display: "IBM Plex Sans Condensed", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
+  --font-body: "IBM Plex Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1217; --surface: #161a21; --fg: #e7ebf1; --fg-muted: #a2acba; --rule: #2a313b;
+    --code-bg: #1d232c; --accent: #4a92e8; --c-aware: #4a92e8; --c-blind: #e0703f; --c-oracle: #23a876;
+    --c-excl: #9085e9; --c-model: #8d97a6; --tint-ours: rgba(74, 146, 232, 0.16);
+    --tint-nfd: rgba(144, 133, 233, 0.13); --tint-ns3: rgba(162, 172, 186, 0.09); --warn: #e0a24a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1217; --surface: #161a21; --fg: #e7ebf1; --fg-muted: #a2acba; --rule: #2a313b;
+  --code-bg: #1d232c; --accent: #4a92e8; --c-aware: #4a92e8; --c-blind: #e0703f; --c-oracle: #23a876;
+  --c-excl: #9085e9; --c-model: #8d97a6; --tint-ours: rgba(74, 146, 232, 0.16);
+  --tint-nfd: rgba(144, 133, 233, 0.13); --tint-ns3: rgba(162, 172, 186, 0.09); --warn: #e0a24a;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 16px; line-height: 1.6; }
+.wrap { max-width: 1180px; margin: 0 auto; padding-inline: 20px; padding-block: 36px 72px;
+  display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 56px; }
+@media (max-width: 960px) { .wrap { grid-template-columns: minmax(0, 1fr); gap: 0; } nav.toc { display: none; } }
+main { min-width: 0; max-width: 780px; }
+
+nav.toc { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 24px); align-self: start; font-size: 13.5px; }
+nav.toc p { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-muted); margin: 0 0 10px; }
+nav.toc ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 7px; }
+nav.toc a { color: var(--fg-muted); text-decoration: none; }
+nav.toc a:hover, nav.toc a:focus-visible { color: var(--accent); }
+
+a { color: var(--accent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; line-height: 1.2; }
+h1 { font-size: clamp(32px, 4.4vw, 46px); font-weight: 600; margin: 6px 0 14px; letter-spacing: -0.01em; }
+h2 { font-size: 27px; font-weight: 600; margin: 64px 0 14px; padding-top: 22px; border-top: 1px solid var(--rule); }
+h3 { font-size: 19px; font-weight: 600; margin: 32px 0 8px; }
+p { margin: 0 0 14px; }
+.eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-muted); margin: 0; }
+.lede { font-size: 18.5px; color: var(--fg); max-width: 62ch; }
+.muted { color: var(--fg-muted); }
+.small { font-size: 14px; }
+code, .mono { font-family: var(--font-mono); font-size: 0.88em; }
+code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+ul, ol { padding-left: 22px; margin: 0 0 14px; }
+li { margin-bottom: 6px; }
+strong { font-weight: 600; }
+
+.tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 26px 0 18px; }
+@media (max-width: 760px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.tile { background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 14px 14px 12px; display: grid; gap: 6px; align-content: start; }
+.tile .num { font-family: var(--font-display); font-size: 26px; font-weight: 600; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.tile .lbl { font-size: 13.5px; color: var(--fg-muted); line-height: 1.4; }
+.oneline { border-left: 3px solid var(--accent); padding: 4px 0 4px 16px; margin: 22px 0; font-size: 17px; }
+
+.tbl { overflow-x: auto; margin: 16px 0 20px; border: 1px solid var(--rule); border-radius: 8px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
+th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--rule); }
+tr:last-child td { border-bottom: none; }
+th { font-family: var(--font-mono); font-size: 11.5px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-muted); background: var(--code-bg); }
+td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+td.k { font-weight: 600; white-space: nowrap; }
+tr.ours td { background: var(--tint-ours); }
+
+figure { margin: 22px 0 26px; }
+figcaption { font-size: 14px; color: var(--fg-muted); margin-top: 8px; max-width: 70ch; }
+.scroll { overflow-x: auto; }
+.diagram { background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 10px; }
+.diagram svg { display: block; width: 100%; min-width: 660px; height: auto; }
+.dg-t { fill: var(--fg); font-family: var(--font-body); font-size: 13px; }
+.dg-b { fill: var(--fg); font-family: var(--font-body); font-size: 13px; font-weight: 600; }
+.dg-m { fill: var(--fg-muted); font-family: var(--font-body); font-size: 11.5px; }
+.dg-mono { fill: var(--fg-muted); font-family: var(--font-mono); font-size: 11px; }
+.dg-box { fill: var(--surface); stroke: var(--fg-muted); stroke-width: 1.2; }
+.dg-ours { fill: var(--tint-ours); stroke: var(--accent); stroke-width: 1.6; }
+.dg-nfd { fill: var(--tint-nfd); stroke: var(--c-excl); stroke-width: 1.2; }
+.dg-ns3 { fill: var(--tint-ns3); stroke: var(--fg-muted); stroke-width: 1.2; }
+.dg-line { stroke: var(--fg-muted); stroke-width: 1.3; fill: none; }
+.dg-thick { stroke: var(--fg); stroke-width: 4; fill: none; }
+.dg-accent { stroke: var(--accent); stroke-width: 2.2; fill: none; }
+.dg-arrow { fill: var(--fg-muted); }
+.dg-arrow-accent { fill: var(--accent); }
+
+.chart { position: relative; background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 12px 10px 6px; }
+.chart svg { display: block; }
+.chart .tick { fill: var(--fg-muted); font-family: var(--font-body); font-size: 12px; font-variant-numeric: tabular-nums; }
+.chart .ax-label { fill: var(--fg-muted); font-family: var(--font-body); font-size: 12.5px; }
+.chart .grid { stroke: var(--rule); stroke-width: 1; }
+.chart .axis { stroke: var(--fg-muted); stroke-width: 1; }
+.chart .vlabel { fill: var(--fg); font-family: var(--font-body); font-size: 12px; font-variant-numeric: tabular-nums; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 4px 6px 6px; font-size: 13px; color: var(--fg); }
+.legend span { display: inline-flex; align-items: center; gap: 7px; }
+.legend i { display: inline-block; width: 22px; height: 0; border-top-width: 3px; border-top-style: solid; }
+.tip { position: absolute; pointer-events: none; background: var(--surface); color: var(--fg); border: 1px solid var(--rule); border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.12); padding: 7px 9px; font-size: 12.5px; line-height: 1.45; max-width: 260px; z-index: 2; }
+details.data { margin-top: 8px; font-size: 13.5px; }
+details.data summary { cursor: pointer; color: var(--fg-muted); }
+
+.mechs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin: 18px 0 22px; }
+@media (max-width: 820px) { .mechs { grid-template-columns: minmax(0, 1fr); } }
+.mech { background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 16px; min-width: 0; }
+.mech h4 { font-family: var(--font-display); font-size: 18px; font-weight: 600; margin: 0 0 4px; display: flex; align-items: center; gap: 8px; }
+.mech h4 .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.mech dl { margin: 10px 0 0; display: grid; gap: 8px; font-size: 14.5px; }
+.mech dt { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-muted); }
+.mech dd { margin: 0; }
+
+.formula { font-family: var(--font-mono); font-size: 15px; background: var(--code-bg); border-radius: 8px; padding: 14px 16px; overflow-x: auto; margin: 12px 0 16px; line-height: 1.7; }
+.formula .note { font-family: var(--font-body); font-size: 13.5px; color: var(--fg-muted); display: block; margin-top: 4px; }
+
+.packet { background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; overflow-x: auto; margin: 16px 0 20px; }
+.packet .row { display: grid; grid-template-columns: 196px minmax(0, 1fr); border-bottom: 1px solid var(--rule); }
+.packet .row:last-child { border-bottom: none; }
+.packet .row > div { padding: 8px 12px; }
+.packet .f { font-family: var(--font-mono); font-size: 12px; color: var(--fg-muted); background: var(--code-bg); }
+.packet .v { font-family: var(--font-mono); font-size: 13px; overflow-wrap: anywhere; }
+.packet .head { grid-template-columns: 1fr; font-family: var(--font-display); font-weight: 600; font-size: 15px; background: var(--code-bg); }
+.packet .v em { font-family: var(--font-body); font-style: normal; color: var(--fg-muted); font-size: 12.5px; display: block; }
+
+.qa { display: grid; gap: 4px; margin: 0 0 16px; }
+.qa dt { font-weight: 600; margin-top: 12px; }
+.qa dd { margin: 0; }
+.flag { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--warn); border: 1px solid currentColor; border-radius: 4px; padding: 1px 6px; white-space: nowrap; }
+footer { margin-top: 56px; padding-top: 16px; border-top: 1px solid var(--rule); font-size: 13.5px; color: var(--fg-muted); }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+
+<div class="wrap">
+<nav class="toc" aria-label="Contents">
+  <p>On this page</p>
+  <ol>
+    <li><a href="#problem">The problem</a></li>
+    <li><a href="#baseline">The base paper</a></li>
+    <li><a href="#solving">What we are solving</a></li>
+    <li><a href="#differ">How we differ</a></li>
+    <li><a href="#mechanisms">Our three rules</a></li>
+    <li><a href="#simulation">How we simulate it</a></li>
+    <li><a href="#kpis">KPIs</a></li>
+    <li><a href="#results">Results</a></li>
+    <li><a href="#limits">Limits</a></li>
+    <li><a href="#viva">Viva answers</a></li>
+    <li><a href="#files">Where things are</a></li>
+  </ol>
+</nav>
+
+<main>
+<p class="eyebrow">CS301 mini-project · Team T8 · Prof. B. R. Chandavarkar</p>
+<h1>Threshold-Aware Similarity Caching for Named Data Networks</h1>
+<p class="lede">A cache that may answer with a <em>similar</em> object instead of the exact one saves hops, but only if the user accepts the answer. We show that the standard model of this badly underestimates delay, and we design request formats and a cache decision rule that fix it. We test everything at packet level in ns-3 with ndnSIM, under congestion and burst loss.</p>
+
+<div class="tiles" role="list">
+  <div class="tile" role="listitem"><span class="num">80.6 ms → 14.5 s</span><span class="lbl">Base paper's prediction vs what ns-3 measures when cache contents persist (α 0.9, s 1)</span></div>
+  <div class="tile" role="listitem"><span class="num">1 attempt</span><span class="lbl">With the threshold in the Interest: 4.84 ms mean, never above 10.01 ms, same cell</span></div>
+  <div class="tile" role="listitem"><span class="num">2.8–20.8 ms</span><span class="lbl">Delay saved by our delay-aware rule over the best fixed α, under congestion and loss</span></div>
+  <div class="tile" role="listitem"><span class="num">18 of 18</span><span class="lbl">Base-paper configurations where the ns-3 mean matches the analytical value (95% CI)</span></div>
+</div>
+
+<p class="oneline"><strong>The project in one sentence.</strong> A bad answer from a nearby cache is not free, because it costs the user a whole retry; so the request should tell the cache what is good enough, or the cache should weigh a risky answer against the delay it measures upstream.</p>
+
+<!-- ============================================================ PROBLEM -->
+<h2 id="problem">The problem in one picture</h2>
+<p>Normal caches answer only when they hold the exact object you asked for. <strong>Similarity caching</strong> relaxes that: on a miss, the cache returns the most similar object it has. Image search, recommendations and LLM "semantic caches" use this, because a close answer is often good enough.</p>
+<p>The catch is that only the user knows what "good enough" means. Each user has a threshold <em>s</em>. If the returned object's similarity <em>s′</em> is below <em>s</em>, the user rejects it, waits a retry interval <em>δ</em>, and asks again. In a network of caches, every cache on the path makes the answer-or-forward choice, and a wrong answer costs a full round of the loop below.</p>
+
+<figure>
+<div class="diagram scroll">
+<svg viewBox="0 0 760 368" role="img" aria-label="Request flow: a rejected answer costs the user a full retry">
+  <defs>
+    <marker id="fa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="dg-arrow" d="M0 0L10 5L0 10z"/></marker>
+    <marker id="fa2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="dg-arrow-accent" d="M0 0L10 5L0 10z"/></marker>
+  </defs>
+  <path class="dg-line" d="M176 92H232" marker-end="url(#fa)"/>
+  <path class="dg-line" d="M432 92H448" marker-end="url(#fa)"/>
+  <path class="dg-line" d="M552 92H584" marker-end="url(#fa)"/>
+  <path class="dg-line" d="M500 126V200" marker-end="url(#fa)"/>
+  <path class="dg-line" d="M660 128V228H600" marker-end="url(#fa)"/>
+  <path class="dg-line" d="M400 228H360" marker-end="url(#fa)"/>
+  <path class="dg-line" d="M300 262V302" marker-end="url(#fa)"/>
+  <path class="dg-accent" d="M240 228H100V120" marker-end="url(#fa2)"/>
+  <rect class="dg-box" x="24" y="64" width="152" height="56" rx="8"/>
+  <text class="dg-b" x="100" y="87" text-anchor="middle">Client</text>
+  <text class="dg-m" x="100" y="105" text-anchor="middle">needs similarity ≥ s</text>
+  <rect class="dg-box" x="232" y="64" width="200" height="56" rx="8"/>
+  <text class="dg-b" x="332" y="87" text-anchor="middle">Cache on the path</text>
+  <text class="dg-m" x="332" y="105" text-anchor="middle">best match c′, similarity s′</text>
+  <polygon class="dg-box" points="448,92 500,58 552,92 500,126"/>
+  <text class="dg-t" x="500" y="96" text-anchor="middle">Answer?</text>
+  <rect class="dg-box" x="584" y="56" width="152" height="72" rx="8"/>
+  <text class="dg-b" x="660" y="79" text-anchor="middle">Forward upstream</text>
+  <text class="dg-m" x="660" y="97" text-anchor="middle">next cache, or origin</text>
+  <text class="dg-m" x="660" y="113" text-anchor="middle">origin: exact item</text>
+  <rect class="dg-box" x="400" y="200" width="200" height="56" rx="8"/>
+  <text class="dg-b" x="500" y="223" text-anchor="middle">Data, Interest's name</text>
+  <text class="dg-m" x="500" y="241" text-anchor="middle">carries c′ and s′</text>
+  <polygon class="dg-box" points="240,228 300,194 360,228 300,262"/>
+  <text class="dg-t" x="300" y="232" text-anchor="middle">s′ ≥ s ?</text>
+  <rect class="dg-box" x="220" y="302" width="160" height="44" rx="8"/>
+  <text class="dg-b" x="300" y="329" text-anchor="middle">Accepted: done</text>
+  <text class="dg-m" x="204" y="84" text-anchor="middle">Interest</text>
+  <text class="dg-m" x="568" y="84" text-anchor="middle">no</text>
+  <text class="dg-m" x="508" y="170">yes</text>
+  <text class="dg-m" x="652" y="180" text-anchor="end">answer comes back</text>
+  <text class="dg-m" x="308" y="288">yes</text>
+  <text class="dg-b" x="170" y="220" text-anchor="middle" style="font-size:12px">no: wait δ, retry</text>
+</svg>
+</div>
+<figcaption>One request. Each cache decides <em>Answer?</em>; the client decides <em>accept or retry</em>. The blue loop is the cost we attack: every rejected answer adds a round trip plus δ = 10 ms.</figcaption>
+</figure>
+
+<h3>The words you need</h3>
+<div class="tbl"><table>
+<thead><tr><th>Term</th><th>Meaning here</th></tr></thead>
+<tbody>
+<tr><td class="k">NDN</td><td>Named Data Networking: you ask for data by name, not by host address. Every router can cache.</td></tr>
+<tr><td class="k">Interest / Data</td><td>The request packet and the reply. NDN delivers a Data only if its name matches the pending Interest.</td></tr>
+<tr><td class="k">PIT, FIB, CS</td><td>Each router's Pending Interest Table (breadcrumbs back to the requester), Forwarding table, and Content Store (its cache, looked up by exact name).</td></tr>
+<tr><td class="k">Forwarding strategy</td><td>The plug-in in NFD (NDN's forwarder) that decides what to do with an Interest the Content Store could not answer. Our logic lives here.</td></tr>
+<tr><td class="k">s′ and s</td><td>s′: similarity of the cache's best match, 0 to 1 (here 1 − |a − b| / 99 for items a, b). s: the lowest similarity the user accepts.</td></tr>
+<tr><td class="k">α</td><td>In the base paper, the fixed probability that a cache answers on a miss.</td></tr>
+<tr><td class="k">δ</td><td>The wait before a retry: 10 ms, as in the base paper.</td></tr>
+</tbody></table></div>
+
+<!-- ============================================================ BASELINE -->
+<h2 id="baseline">What the base paper did, and where it breaks</h2>
+<p><strong>Base paper:</strong> R. Nakamura and N. Kamiyama, "Analysis of Similarity Caching on General Cache Networks," <em>IEEE Access</em>, vol. 12, 2024. It is the first work to measure similarity caching from the user's side over a path of caches. Each cache answers with its best match with probability α, else forwards; the origin always has the exact item. The paper derives the mean <strong>similar-content delivery delay</strong>:</p>
+<div class="formula">E[D] = d<sup>≥</sup> + (1/ρ − 1) · (d<sup>&lt;</sup> + δ)
+<span class="note">ρ is the chance that one attempt brings an acceptable answer; d<sup>≥</sup> and d<sup>&lt;</sup> are the mean delays of an accepted and a rejected attempt. The number of attempts is geometric with mean 1/ρ.</span></div>
+<p>They evaluate it numerically on a tandem of 5 caches and an origin, 1 ms per link, a catalogue of C = 100 items, B = 10 items per cache, δ = 10 ms. To keep the maths tractable they assume:</p>
+<ol>
+  <li>one fixed α at every cache, applied even when the cache holds the exact item;</li>
+  <li>links with unlimited bandwidth: no queueing and no loss;</li>
+  <li>every retry sees freshly random cache contents, so attempts are independent;</li>
+  <li>cache contents are a uniform random set of B items;</li>
+  <li>no protocol and no packets: numbers only.</li>
+</ol>
+
+<h3>Our three findings about the paper</h3>
+<p><strong>1. Eq. (6) is misprinted.</strong> It weights only the last-hop round trip; the paper's own figures use the cumulative one. With that correction we reproduce its Fig. 5(a): 9.96, 45.97 and 80.6 ms at s = 1 for α = 0.1, 0.5 and 0.9.</p>
+<p><strong>2. Eqs. (8) and (10) appear to describe two different caches.</strong> Eq. (8) lets a request pass a cache that would have returned an unacceptable item, which only a cache that knows s can do. Eq. (10) stops at any cache that answers, which is a blind cache. Eq. (8) turns out to be exactly right for our threshold Interests.</p>
+<p><strong>3. Independent retries hide a heavy tail. This is the core finding.</strong> A real cache does not change its contents in the 10 ms between two attempts, so a user whose nearby caches hold nothing acceptable gets the same rejected answers again and again. The model averages ρ first and then inverts it, 1/E[ρ]; with persistent contents the truth is E[1/ρ], and by Jensen's inequality E[1/ρ] ≥ 1/E[ρ], often by a lot.</p>
+<p class="muted small">A quick illustration with invented numbers: if half the users have ρ = 0.5 and half have ρ = 0.001, the average ρ is about 0.25, so the model predicts about 4 attempts. In reality half need 2 attempts and half need 1,000, an average of about 500. In our setting the worst case is a user whose 5 caches all hold nothing acceptable: an attempt succeeds only if all 5 forward, (1 − 0.9)<sup>5</sup> = 10<sup>−5</sup> at α = 0.9.</p>
+
+<figure>
+<div class="chart" id="ch-gap" data-aria="Bar chart: base paper model versus ns-3 with persistent contents, at s equal 1"></div>
+<figcaption>Same caches, same users, s = 1: the paper's model against blind caching measured in ns-3 with contents that persist across retries (log scale; whiskers are 95% CIs). At α = 0.9, 22% of requests hit our 5,000-attempt cap, so the real mean is higher still. Exact enumeration of the model puts the gap at 2.13× for α = 0.5 and about 1,700× for α = 0.9.</figcaption>
+</figure>
+
+<!-- ============================================================ SOLVING -->
+<h2 id="solving">What we are solving</h2>
+<p class="oneline" style="font-size:16px"><strong>Problem statement.</strong> Given a Named Data Network of similarity caches whose users accept an answer only above their own similarity threshold, and whose upstream links may be congested and lossy, design the request signalling and a per-cache answer-or-forward rule that bound the number of retries and minimise the mean delay until an acceptable answer arrives. Derive this delay in closed form where possible, and validate the design at packet level in ns-3 with ndnSIM.</p>
+<p>The five objectives in our submitted proposal, and where each stands:</p>
+<div class="tbl"><table>
+<thead><tr><th>#</th><th>Objective (from the proposal)</th><th>Status</th><th>Evidence</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>Similarity Content Store, consumer and producer in ndnSIM; reproduce the base paper</td><td>Done</td><td>All 18 distinct configurations inside the model's 95% CI (120 runs, 104,000 requests)</td></tr>
+<tr><td>2</td><td>Measure retry delay of blind caching when contents persist, against the model</td><td>Done</td><td>14,522 ± 2,070 ms vs 80.6 ms at α 0.9, s 1; p99 51.2 s</td></tr>
+<tr><td>3</td><td>Interest carries the lowest acceptable similarity; cache answers only if its best match clears it</td><td>Done</td><td>Exactly 1 attempt, 4.84 ms; closed form matches 24 of 24 cells. The retry cap is enforced at the client, not carried in the Interest.</td></tr>
+<tr><td>4</td><td>Forwarding strategy that answers or forwards from the measured upstream delay, under congestion and burst loss</td><td>Done</td><td>Beats the best fixed α at every load and loss point; paired CIs exclude 0</td></tr>
+<tr><td>5</td><td>Compare mean and p95 delay, delivered similarity, upstream traffic and fairness with the base scheme</td><td>Done</td><td>Upstream hops 158 → 5.0 → 2.4; Jain's index 0.48 → 0.80 → 0.85 (blind → exclusion → threshold)</td></tr>
+</tbody></table></div>
+
+<!-- ============================================================ DIFFER -->
+<h2 id="differ">How our work differs from the base paper</h2>
+<p>We keep the paper's question and its exact setting, so every number can be compared with theirs. Everything else changes.</p>
+<div class="tbl"><table>
+<thead><tr><th>Dimension</th><th>Base paper</th><th>Our project</th></tr></thead>
+<tbody>
+<tr><td class="k">How it is evaluated</td><td>Closed-form expressions, evaluated numerically</td><td>Packet-level simulation in ns-3 with ndnSIM, running NDN's real forwarder; plus exact closed forms, cross-checked against the simulator</td></tr>
+<tr><td class="k">Retries</td><td>Independent: contents redrawn for every attempt</td><td>Contents persist across a request's retries, as in a real cache; the paper's case is also run, for comparison</td></tr>
+<tr><td class="k">Cache decision</td><td>Fixed probability α at every cache, blind to the user</td><td>Three rules: threshold (s in the Interest), exclusion (retry names rejected caches), delay-aware (learned cost rule)</td></tr>
+<tr><td class="k">Network</td><td>Unlimited bandwidth, no queues, no loss</td><td>1 Gbps links with real serialisation; a 2 Mbps backhaul with a 100-packet DropTail queue and Poisson cross traffic; Gilbert–Elliott burst loss on every link</td></tr>
+<tr><td class="k">NDN details</td><td>Not addressed</td><td>Substitute item carried under the Interest's own name; parameters in ApplicationParameters; NFD itself unmodified</td></tr>
+<tr><td class="k">Users</td><td>One threshold per analysis</td><td>One threshold per run, and mixed users drawing s from {0.9, 0.95, 1.0}</td></tr>
+<tr><td class="k">Metrics</td><td>Mean delay; fairness across clients</td><td>Mean with 95% CI, p95 and p99, attempts, censored share, upstream hops, delivered similarity, Jain's index, rejections, cross-traffic delay</td></tr>
+<tr><td class="k">The maths</td><td>As published</td><td>Eq. (6) corrected; Eq. (8) identified as the threshold-aware case; the independence assumption quantified</td></tr>
+</tbody></table></div>
+
+<!-- ============================================================ MECHANISMS -->
+<h2 id="mechanisms">Our three rules</h2>
+<p>All three replace the paper's coin flip at the <em>Answer?</em> step. They differ in what the request carries and what the cache must know.</p>
+<div class="mechs">
+  <div class="mech">
+    <h4><span class="dot" style="background:var(--c-oracle)"></span>Threshold</h4>
+    <p class="small muted">Tell the cache what is good enough.</p>
+    <dl>
+      <dt>Interest carries</dt><dd>The user's threshold, <code>smin=s</code></dd>
+      <dt>Cache rule</dt><dd>Answer only if s′ ≥ s</dd>
+      <dt>Guarantee</dt><dd>Nothing is ever rejected: exactly one attempt. The paper's Eq. (8) becomes exact, and α = 1 becomes optimal.</dd>
+      <dt>Cost</dt><dd>Reveals each user's tolerance to every cache</dd>
+    </dl>
+  </div>
+  <div class="mech">
+    <h4><span class="dot" style="background:var(--c-excl)"></span>Exclusion</h4>
+    <p class="small muted">Don't ask the same wrong cache twice.</p>
+    <dl>
+      <dt>Interest carries</dt><dd>On a retry, <code>excl=</code> the caches whose answers were rejected</dd>
+      <dt>Cache rule</dt><dd>Blind coin α, but a listed cache always forwards</dd>
+      <dt>Guarantee</dt><dd>At most (caches on the path + 1) attempts</dd>
+      <dt>Cost</dt><dd>Still wastes the first wrong answers</dd>
+    </dl>
+  </div>
+  <div class="mech">
+    <h4><span class="dot" style="background:var(--c-aware)"></span>Delay-aware</h4>
+    <p class="small muted">Answer only when it is worth the risk.</p>
+    <dl>
+      <dt>Interest carries</dt><dd>The exclusion list and a HopLimit; never s</dd>
+      <dt>Cache rule</dt><dd>Compare the expected cost of answering with the cost of forwarding (below)</dd>
+      <dt>Guarantee</dt><dd>Adapts to load and loss with no knowledge of s; an exact hit is always served</dd>
+      <dt>Cost</dt><dd>Must learn, so it makes some rejections while learning</dd>
+    </dl>
+  </div>
+</div>
+
+<h3>The delay-aware rule</h3>
+<p>A cache at h hops from the client has a best match with similarity s′. Answering costs the round trip R<sub>h</sub> now; with probability 1 − F(s′) the user rejects it, which costs δ, the round trip again, and then the upstream delay. Forwarding costs R<sub>h</sub> + D̂<sub>up</sub>. Answer when answering is cheaper:</p>
+<div class="formula">(1 − F(s′)) · (δ + R<sub>h</sub> + D̂<sub>up</sub>) &lt; D̂<sub>up</sub>
+<span class="note">F(s′): share of this cache's users who accept similarity s′. D̂<sub>up</sub>: smoothed delay of forwarding, measured like TCP's SRTT (gain 1/8); an expired Interest counts as the time lost, so it also sees loss.</span></div>
+<ul>
+  <li><strong>Direction.</strong> When the upstream is congested or lossy, D̂<sub>up</sub> rises, the bar for answering drops, and the cache answers locally more. That helps the user and also takes load off the bottleneck.</li>
+  <li><strong>Position.</strong> A cache close to the origin sees a small D̂<sub>up</sub> and stays strict. The paper observed this position effect; our rule derives it.</li>
+  <li><strong>Learning F.</strong> 20 similarity bins with a Laplace prior, fitted to be non-decreasing. A retry that names this cache in its exclusion list counts as a rejection; no retry within 1 s counts as an acceptance. The cache explores a bin only while its verdict is still uncertain at F ± 2 standard errors.</li>
+</ul>
+
+<!-- ============================================================ SIMULATION -->
+<h2 id="simulation">How we simulate it in a realistic network</h2>
+<p>This is a simulation, not a deployment on physical routers. But it is a <strong>packet-level</strong> simulation of a real protocol stack: real NDN packets go through NDN's real forwarding code, over links with finite bandwidth, queues and loss. The base paper had none of that; it only evaluated formulas.</p>
+
+<h3>What is real code and what we wrote</h3>
+<figure>
+<div class="diagram scroll">
+<svg viewBox="0 0 760 392" role="img" aria-label="Simulation stack: which layers are real NDN code, ns-3 models, and ours">
+  <rect class="dg-nfd" x="24" y="14" width="14" height="14" rx="3"/><text class="dg-m" x="44" y="26">Real NDN code (NFD 22.02, ndn-cxx)</text>
+  <rect class="dg-ns3" x="270" y="14" width="14" height="14" rx="3"/><text class="dg-m" x="290" y="26">ndnSIM / ns-3 network models</text>
+  <rect class="dg-ours" x="490" y="14" width="14" height="14" rx="3"/><text class="dg-m" x="510" y="26">Ours (C++)</text>
+
+  <text class="dg-m" x="24" y="66">Applications</text>
+  <rect class="dg-ours" x="150" y="44" width="186" height="46" rx="6"/><text class="dg-b" x="243" y="63" text-anchor="middle">SimConsumer</text><text class="dg-m" x="243" y="80" text-anchor="middle">client: accept or retry</text>
+  <rect class="dg-ours" x="346" y="44" width="186" height="46" rx="6"/><text class="dg-b" x="439" y="63" text-anchor="middle">SimProducer</text><text class="dg-m" x="439" y="80" text-anchor="middle">origin: exact item</text>
+  <rect class="dg-ns3" x="542" y="44" width="194" height="46" rx="6"/><text class="dg-b" x="639" y="63" text-anchor="middle">Cross-traffic apps</text><text class="dg-m" x="639" y="80" text-anchor="middle">Poisson consumer + producer</text>
+
+  <text class="dg-m" x="24" y="128">NFD forwarder</text>
+  <rect class="dg-nfd" x="150" y="104" width="586" height="76" rx="6"/>
+  <rect class="dg-box" x="162" y="116" width="76" height="52" rx="5"/><text class="dg-b" x="200" y="139" text-anchor="middle">PIT</text><text class="dg-m" x="200" y="155" text-anchor="middle">breadcrumbs</text>
+  <rect class="dg-box" x="246" y="116" width="76" height="52" rx="5"/><text class="dg-b" x="284" y="139" text-anchor="middle">FIB</text><text class="dg-m" x="284" y="155" text-anchor="middle">routes</text>
+  <rect class="dg-box" x="330" y="116" width="120" height="52" rx="5"/><text class="dg-b" x="390" y="139" text-anchor="middle">Content Store</text><text class="dg-m" x="390" y="155" text-anchor="middle">exact names only</text>
+  <rect class="dg-ours" x="458" y="116" width="268" height="52" rx="5"/><text class="dg-b" x="592" y="137" text-anchor="middle">SimilarityStrategy</text><text class="dg-m" x="592" y="155" text-anchor="middle">similarity store, 3 rules, learner</text>
+
+  <text class="dg-m" x="24" y="216">NDN faces</text>
+  <rect class="dg-ns3" x="150" y="194" width="586" height="40" rx="6"/><text class="dg-t" x="443" y="219" text-anchor="middle">NDN link service and transport: TLV-encoded packets to the device</text>
+
+  <text class="dg-m" x="24" y="266">Point-to-point</text>
+  <text class="dg-m" x="24" y="282">device</text>
+  <rect class="dg-ns3" x="150" y="248" width="586" height="68" rx="6"/>
+  <rect class="dg-box" x="162" y="260" width="180" height="44" rx="5"/><text class="dg-b" x="252" y="278" text-anchor="middle">Transmit queue</text><text class="dg-m" x="252" y="295" text-anchor="middle">DropTail, 100 packets</text>
+  <rect class="dg-box" x="350" y="260" width="180" height="44" rx="5"/><text class="dg-b" x="440" y="278" text-anchor="middle">Data rate</text><text class="dg-m" x="440" y="295" text-anchor="middle">1 Gbps; backhaul 2 Mbps</text>
+  <rect class="dg-ours" x="538" y="260" width="188" height="44" rx="5"/><text class="dg-b" x="632" y="278" text-anchor="middle">Gilbert–Elliott model</text><text class="dg-m" x="632" y="295" text-anchor="middle">burst loss on receive</text>
+
+  <text class="dg-m" x="24" y="352">Channel</text>
+  <rect class="dg-ns3" x="150" y="330" width="586" height="40" rx="6"/><text class="dg-t" x="443" y="355" text-anchor="middle">Propagation delay 1 ms per link</text>
+</svg>
+</div>
+<figcaption>Every packet in our results was encoded, queued, serialised, possibly dropped, forwarded by NFD's real PIT and FIB, and decided by our strategy. NFD and ndnSIM themselves are unmodified, apart from a small patch to a scheduler bug in ndnSIM's bundled ndn-cxx that changed speed only (216 runs byte-identical before and after).</figcaption>
+</figure>
+
+<h3>The network we simulate</h3>
+<figure>
+<div class="diagram scroll">
+<svg viewBox="0 0 760 276" role="img" aria-label="Topology: five caches in a line, a congested backhaul to the origin, cross traffic and burst loss">
+  <defs><marker id="ta" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="dg-arrow" d="M0 0L10 5L0 10z"/></marker></defs>
+  <path class="dg-line" d="M112 106V60H686V104" stroke-dasharray="5 4" marker-end="url(#ta)"/>
+  <text class="dg-m" x="374" y="52" text-anchor="middle">Cross traffic: Poisson Interests from v1 to the origin, 1075-byte Data back, offered backhaul load 0 to 0.95</text>
+  <line class="dg-line" x1="152" y1="128" x2="180" y2="128"/>
+  <line class="dg-line" x1="260" y1="128" x2="288" y2="128"/>
+  <line class="dg-line" x1="368" y1="128" x2="396" y2="128"/>
+  <line class="dg-line" x1="476" y1="128" x2="504" y2="128"/>
+  <line class="dg-thick" x1="584" y1="128" x2="636" y2="128"/>
+  <rect class="dg-box" x="72" y="106" width="80" height="44" rx="8"/><text class="dg-b" x="112" y="133" text-anchor="middle">v1</text>
+  <rect class="dg-box" x="180" y="106" width="80" height="44" rx="8"/><text class="dg-b" x="220" y="133" text-anchor="middle">v2</text>
+  <rect class="dg-box" x="288" y="106" width="80" height="44" rx="8"/><text class="dg-b" x="328" y="133" text-anchor="middle">v3</text>
+  <rect class="dg-box" x="396" y="106" width="80" height="44" rx="8"/><text class="dg-b" x="436" y="133" text-anchor="middle">v4</text>
+  <rect class="dg-box" x="504" y="106" width="80" height="44" rx="8"/><text class="dg-b" x="544" y="133" text-anchor="middle">v5</text>
+  <rect class="dg-box" x="636" y="104" width="100" height="48" rx="8"/><text class="dg-b" x="686" y="126" text-anchor="middle">Origin</text><text class="dg-m" x="686" y="142" text-anchor="middle">all 100 items</text>
+  <text class="dg-m" x="610" y="186" text-anchor="middle">2 Mbps backhaul</text>
+  <text class="dg-m" x="610" y="200" text-anchor="middle">DropTail, 100 pkts</text>
+  <text class="dg-m" x="328" y="98" text-anchor="middle">1 Gbps, 1 ms per link</text>
+  <text class="dg-m" x="112" y="170" text-anchor="middle">client c1</text>
+  <text class="dg-m" x="220" y="170" text-anchor="middle">client c2</text>
+  <text class="dg-m" x="328" y="170" text-anchor="middle">client c3</text>
+  <text class="dg-m" x="436" y="170" text-anchor="middle">client c4</text>
+  <text class="dg-m" x="544" y="170" text-anchor="middle">client c5</text>
+  <path class="dg-line" d="M72 212V220H736V212"/>
+  <text class="dg-m" x="404" y="240" text-anchor="middle">Loss runs: Gilbert–Elliott burst loss on every link, in both directions</text>
+  <text class="dg-m" x="404" y="256" text-anchor="middle">mean loss 1, 5 or 10%; mean burst 3.3 packets</text>
+  <text class="dg-m" x="24" y="133">C = 100</text>
+  <text class="dg-m" x="24" y="149">B = 10</text>
+</svg>
+</div>
+<figcaption>The base paper's tandem: five caches in a line toward the origin, each with one client and 10 of the 100 items. It stands for an access network: users at the edge, aggregation routers in between, and a thin uplink to the data centre. The 2 Mbps backhaul and the burst loss are what the paper leaves out.</figcaption>
+</figure>
+
+<h3>What a packet actually looks like</h3>
+<p>An example request for item 42 from the client on v3, its second attempt, answered by v4 with item 39 (similarity 1 − 3/99 = 0.97). The values are illustrative; the format is exactly what our code puts on the wire.</p>
+<div class="packet">
+  <div class="row head"><div>Interest (delay-aware rule)</div></div>
+  <div class="row"><div class="f">Name</div><div class="v">/sim/42/2/1017/2/params-sha256=…<em>/sim / item / client node / request / attempt; the digest is added by NDN because the Interest carries parameters</em></div></div>
+  <div class="row"><div class="f">ApplicationParameters</div><div class="v">excl=4<em>Threshold rule sends smin=0.95;excl= instead. Blind Interests carry nothing, so they stay byte-identical to the paper's setting.</em></div></div>
+  <div class="row"><div class="f">HopLimit</div><div class="v">32<em>NFD decrements it at every node, so a cache knows how far away the client is</em></div></div>
+  <div class="row"><div class="f">Lifetime</div><div class="v">200 ms<em>2 s in the loss-free stages</em></div></div>
+</div>
+<div class="packet">
+  <div class="row head"><div>Data (the substitute answer)</div></div>
+  <div class="row"><div class="f">Name</div><div class="v">the full Interest name, unchanged<em>so NDN's exact name matching still delivers it</em></div></div>
+  <div class="row"><div class="f">Content</div><div class="v">39 0.96969696969696972 3 30<em>served item, similarity, serving node, HopLimit seen there</em></div></div>
+</div>
+
+<h3>The three experiment stages</h3>
+<div class="tbl"><table>
+<thead><tr><th>Stage</th><th>Question</th><th>Setup</th><th class="n">Runs</th></tr></thead>
+<tbody>
+<tr><td class="k">S2 Reproduce</td><td>Does the simulator match the paper's model? What happens when contents persist?</td><td>Blind caches; α 0.1, 0.5, 0.9; s 0.9, 0.95, 1.0; contents redrawn per attempt or kept per request</td><td class="n">120</td></tr>
+<tr><td class="k">S3 Bound retries</td><td>Do threshold and exclusion Interests remove the tail? Is the closed form exact?</td><td>Blind, threshold, exclusion; α 0.1 to 1.0; 25 runs per threshold and exclusion cell</td><td class="n">1,320</td></tr>
+<tr><td class="k">S4 Congestion and loss</td><td>Does the delay-aware rule beat every fixed α?</td><td>2 Mbps backhaul at offered load 0 to 0.95, or burst loss 1 to 10%; mixed users; 2,000 requests per run, first 500 warm-up</td><td class="n">485</td></tr>
+</tbody></table></div>
+
+<h3>How we know the simulator is right</h3>
+<ul>
+  <li><strong>Against closed forms.</strong> Every cell is compared with an exact analytical value, using the mean over at least 5 independent seeds and a 95% confidence interval (Student's t over runs).</li>
+  <li><strong>Accounting identity.</strong> Each of the 1.27 million Stage 3 requests satisfies delay = 2τ × hops + δ × (attempts − 1), plus 0.7 to 1.7 µs of serialisation per hop.</li>
+  <li><strong>Replay.</strong> Each new stage first replays earlier runs byte for byte, so a change in one part cannot silently move older results.</li>
+  <li><strong>Independent cross-check.</strong> The closed forms are implemented twice, in Python and in MATLAB.</li>
+</ul>
+
+<!-- ============================================================ KPIs -->
+<h2 id="kpis">KPIs: what we measure and why</h2>
+<p>The headline KPI is the paper's own metric, so results compare directly. The others catch what a mean hides: tails, wasted traffic, answer quality, unfairness and harm to other traffic.</p>
+<div class="tbl"><table>
+<thead><tr><th>KPI</th><th>Definition</th><th>Why it matters</th><th>Better</th></tr></thead>
+<tbody>
+<tr><td class="k">Delivery delay</td><td>Time from a request's first Interest to the answer the user accepts; mean ± 95% CI over runs</td><td>What the user waits; the base paper's metric</td><td>Lower</td></tr>
+<tr><td class="k">Tail delay</td><td>95th and 99th percentile of the same delay</td><td>Shows the heavy tail that a mean averages away</td><td>Lower</td></tr>
+<tr><td class="k">Attempts, censored share</td><td>Interests sent per request; share hitting the 5,000-attempt cap</td><td>Direct measure of wasted retries</td><td>Lower</td></tr>
+<tr><td class="k">Upstream Interest hops</td><td>Links climbed by all answered attempts of a request</td><td>Upstream traffic and load each request causes</td><td>Lower</td></tr>
+<tr><td class="k">Delivered similarity</td><td>Mean similarity of accepted answers</td><td>Answer quality; must not be bought away</td><td>Higher</td></tr>
+<tr><td class="k">Jain's fairness</td><td>(Σx)² / (n·Σx²) over the five clients' mean delays</td><td>Far clients should not pay for near ones</td><td>Closer to 1</td></tr>
+<tr><td class="k">Rejections, timeouts</td><td>Per request, under load and loss</td><td>Cost of learning; effect of loss</td><td>Lower</td></tr>
+<tr><td class="k">Cross-traffic delay</td><td>Mean delay of the other traffic on the backhaul</td><td>Whether our caching harms other users</td><td>Lower</td></tr>
+<tr><td class="k">Model agreement</td><td>Cells whose 95% CI contains the closed form; largest |t|</td><td>Proves the simulator and the maths agree</td><td>All cells</td></tr>
+</tbody></table></div>
+
+<!-- ============================================================ RESULTS -->
+<h2 id="results">Results</h2>
+
+<h3>1. The simulator reproduces the paper</h3>
+<figure>
+<div class="chart" id="ch-valid" data-aria="Scatter: simulated mean delay against the analytical value for 18 configurations"></div>
+<figcaption>Each point is one configuration: simulated mean (with 95% CI) against the analytical value, on log axes. Points on the diagonal agree. All 18 do, both in the paper's world (contents redrawn) and with persistent contents, where the expectation runs to seconds.</figcaption>
+</figure>
+
+<h3>2. Persistent contents create a heavy tail</h3>
+<p>Shown in the chart in the base-paper section: at α = 0.9 and s = 1 the paper predicts 80.6 ms, while ns-3 with persistent contents measures 14,522 ± 2,070 ms. 22% of requests reach the 5,000-attempt cap, and the 99th percentile is 51.2 s. The paper's conclusion that a large α evens out fairness is drawn exactly where this tail is worst.</p>
+
+<h3>3. Threshold and exclusion bound the retries</h3>
+<div class="tbl"><table>
+<thead><tr><th>α 0.9, s 1, contents persist</th><th class="n">Mean delay</th><th class="n">p99</th><th class="n">Max attempts</th><th class="n">Upstream hops</th><th class="n">Jain</th></tr></thead>
+<tbody>
+<tr><td class="k">Blind (base paper)</td><td class="n">14,522 ms</td><td class="n">51,187 ms</td><td class="n">5,000</td><td class="n">158.1</td><td class="n">0.48</td></tr>
+<tr><td class="k">Exclusion</td><td class="n">32.9 ms</td><td class="n">80.0 ms</td><td class="n">6</td><td class="n">5.0</td><td class="n">0.80</td></tr>
+<tr class="ours"><td class="k">Threshold</td><td class="n">4.84 ms</td><td class="n">10.0 ms</td><td class="n">1</td><td class="n">2.4</td><td class="n">0.85</td></tr>
+</tbody></table></div>
+<ul>
+  <li>The threshold closed form holds at packet level: 24 of 24 cells contain it in their 95% CI (25 runs each, largest |t| 1.61). Exclusion matches in 22 of 24.</li>
+  <li>α = 1 is optimal once the threshold is known: 5.89, 5.33, 4.84 and 4.72 ms at α = 0.1, 0.5, 0.9 and 1. Under blind caching α = 1 is the worst choice: 89% of requests at s = 1 are censored.</li>
+  <li>Every accepted answer still meets the user's threshold: delivered similarity is 1.0 at s = 1 for all three rules.</li>
+</ul>
+
+<h3>4. Under congestion, the delay-aware rule beats every fixed α</h3>
+<figure>
+<div class="chart" id="ch-load" data-aria="Line chart: mean delay against offered backhaul load for four policies"></div>
+<figcaption>Mixed users, 2 Mbps backhaul, mean delay after warm-up with 95% CIs. "Best fixed α" is the best exclusion cache at each load, chosen after the fact: α = 0.1 up to 0.9 load, α = 1 at 0.95. No single α wins everywhere, so no deployed α could even match that line. The oracle knows every user's s.</figcaption>
+</figure>
+
+<h3>5. Under burst loss, it still wins</h3>
+<figure>
+<div class="chart" id="ch-loss" data-aria="Line chart: mean delay against mean loss per link for four policies, log scale"></div>
+<figcaption>Gilbert–Elliott loss on every link, log scale. The best fixed α moves from 0.1 to 0.9 to 0.7 as loss grows.</figcaption>
+</figure>
+
+<div class="tbl"><table>
+<thead><tr><th>Operating point</th><th class="n">Delay-aware</th><th class="n">Best fixed α</th><th class="n">Δ (95% CI)</th><th class="n">Gap to oracle closed</th></tr></thead>
+<tbody>
+<tr><td class="k">Load 0</td><td class="n">5.02 ms</td><td class="n">7.78 ms</td><td class="n">−2.76 ± 0.31</td><td class="n">50%</td></tr>
+<tr><td class="k">Load 0.9</td><td class="n">11.15 ms</td><td class="n">16.80 ms</td><td class="n">−5.65 ± 1.33</td><td class="n">49%</td></tr>
+<tr><td class="k">Load 0.95</td><td class="n">15.10 ms</td><td class="n">22.12 ms</td><td class="n">−7.02 ± 1.57</td><td class="n">48%</td></tr>
+<tr><td class="k">Loss 1%</td><td class="n">13.78 ms</td><td class="n">19.57 ms</td><td class="n">−5.79 ± 4.75</td><td class="n">44%</td></tr>
+<tr><td class="k">Loss 10%</td><td class="n">115.30 ms</td><td class="n">136.08 ms</td><td class="n">−20.77 ± 14.31</td><td class="n">28%</td></tr>
+<tr><td class="k">All users s = 0.95, idle</td><td class="n">1.16 ms</td><td class="n">7.11 ms</td><td class="n">−5.94 ± 0.15</td><td class="n">100%</td></tr>
+</tbody></table></div>
+<p class="small muted">Δ is delay-aware minus the best fixed α, paired over runs with the same seeds; a negative Δ whose CI excludes 0 is a significant win. When every user agrees on s, the rule reaches the oracle (1.16 vs 1.17 ms) without ever seeing s.</p>
+
+<h3>6. What the caches learn, and how stable it is</h3>
+<div class="tbl"><table>
+<thead><tr><th>Offered load</th><th class="n">D̂<sub>up</sub> at v1</th><th class="n">D̂<sub>up</sub> at v5</th><th class="n">Mean s* at v1</th><th class="n">Mean s* at v5</th><th class="n">v5 in "answer anything" mode</th></tr></thead>
+<tbody>
+<tr><td class="k">0 (idle)</td><td class="n">7.1 ms</td><td class="n">2.7 ms</td><td class="n">0.97</td><td class="n">1.00</td><td class="n">0%</td></tr>
+<tr><td class="k">0.9</td><td class="n">9.2 ms</td><td class="n">14.8 ms</td><td class="n">0.94</td><td class="n">0.90</td><td class="n">8%</td></tr>
+<tr><td class="k">0.95</td><td class="n">11.6 ms</td><td class="n">23.5 ms</td><td class="n">0.88</td><td class="n">0.77</td><td class="n">20%</td></tr>
+</tbody></table></div>
+<ul>
+  <li><strong>As designed:</strong> D̂<sub>up</sub> rises with load and the learned threshold s* falls, so caches answer locally more. When idle, the cache next to the origin (v5) is the strictest.</li>
+  <li><strong>At high load it reverses:</strong> v5's forwards all cross the congested backhaul, so it sees the largest D̂<sub>up</sub> and becomes the most lenient.</li>
+  <li><strong>Stability:</strong> after warm-up the delay shows no significant drift at any load, and up to 0.9 load no cache's s* moves more than 0.03 between requests 1,000 and 2,000.</li>
+  <li><strong>The mean s* of 0.77 is a mixture.</strong> At 0.95 load a cache flips between s* ≈ 0.95 and "answer anything" (s* ≈ 0) when D̂<sub>up</sub> spikes: 20% of snapshots at v5. Never quote 0.77 as a threshold it settled on.</li>
+  <li><strong>Side effects:</strong> other traffic on the backhaul is barely affected (its delay differs by at most 5.5 ms between policies at 0.95 load, and is lowest under our rule, 50.9 ms). The price of learning is rejections: 0.13 per request when idle, 0.50 at 0.95 load. The oracle has none.</li>
+</ul>
+
+<!-- ============================================================ LIMITS -->
+<h2 id="limits">Limits to state before they are raised</h2>
+<div class="tbl"><table>
+<thead><tr><th>Limit</th><th>What to say</th></tr></thead>
+<tbody>
+<tr><td class="k">One topology, synthetic items</td><td>Chosen to match the paper number for number. General topologies and a real image dataset are next.</td></tr>
+<tr><td class="k">Random cache contents</td><td>The paper's assumption, kept for a fair comparison; no LRU or on-path insertion yet.</td></tr>
+<tr><td class="k">Persistence is an extreme</td><td>The model is the other extreme; real caches sit between, depending on how fast contents change compared with δ. We have not measured real churn.</td></tr>
+<tr><td class="k">Debug build only</td><td>ndnSIM's optimized build crashes when our strategy answers; the debug build runs cleanly and matches the model.</td></tr>
+<tr><td class="k">No RED or CoDel</td><td>In ndnSIM, NDN packets bypass ns-3's traffic-control layer, so we use DropTail and claim nothing about AQM.</td></tr>
+<tr><td class="k">Substitute not producer-signed</td><td>The fix is to carry the original signed Data inside the answer.</td></tr>
+<tr><td class="k">Threshold leaks preferences</td><td>The reason exclusion and delay-aware exist; neither needs s. (Our exclusion Interests still carry smin on the wire, but caches ignore it.)</td></tr>
+<tr><td class="k">Learner at high load <span class="flag">open</span></td><td>Rarely seen low-similarity bins get pooled with the 0.90 bin, so under heavy load a cache sometimes answers anything, including items no user accepts. Fixing it changes the algorithm and means re-running Stage 4.</td></tr>
+<tr><td class="k">No convergence proof</td><td>Measured stability up to 0.9 load; at 0.95 the network itself drifts within a run (the oracle's delay rises by 2.5 ± 2.5 ms).</td></tr>
+<tr><td class="k">Retry cap at the client</td><td>The proposal said the Interest would carry it. With the threshold in the Interest nothing is rejected, so a cap on the wire would never fire.</td></tr>
+</tbody></table></div>
+
+<!-- ============================================================ VIVA -->
+<h2 id="viva">Answers to the questions you will get</h2>
+<dl class="qa">
+  <dt>What is new compared with the base paper?</dt>
+  <dd>A packet-level evaluation that did not exist; the size of the tail that independent retries hide; Interests that remove retries and make the paper's Eq. (8) exact; and a delay-aware rule that works under congestion and loss.</dd>
+  <dt>NDN only delivers Data whose name matches the Interest. How do you return a different object?</dt>
+  <dd>The answer keeps the Interest's own name; its payload says which item it is and how similar. NDN's matching is untouched, and NFD is unmodified.</dd>
+  <dt>NDN removed Selectors. Where does the threshold go?</dt>
+  <dd>In ApplicationParameters, the packet format v0.3 way to pass parameters; NDN then appends a digest to the name.</dd>
+  <dt>Why does the model underestimate the delay?</dt>
+  <dd>It averages the success probability, then inverts it. With persistent contents you must average the inverse, which is always larger (Jensen). At α 0.9 a user with no acceptable item nearby needs about 100,000 attempts.</dd>
+  <dt>Isn't sending the threshold trivial?</dt>
+  <dd>The header field is; the consequences are not: no retries, an exact closed form, α obsolete. It also leaks preferences, which is why we built the delay-aware rule.</dd>
+  <dt>Is a simulation a real network?</dt>
+  <dd>No, but it runs NDN's real forwarder over links with finite bandwidth, queues and loss, which the paper did not have. The strategy would port to a real NFD router once the similarity store moves out of the simulation controller.</dd>
+  <dt>Is the best-fixed-α baseline fair?</dt>
+  <dd>It is unfair to us: it picks the best α for each load after the fact, which no deployed cache can do, and we still win at every point.</dd>
+  <dt>Why ns-3 and ndnSIM?</dt>
+  <dd>The course allows UnetStack, ns-3 or MATLAB; ndnSIM is the NDN module for ns-3 and runs the real NFD forwarder.</dd>
+</dl>
+
+<!-- ============================================================ FILES -->
+<h2 id="files">Where everything is</h2>
+<div class="tbl"><table>
+<thead><tr><th>What</th><th>Where (repo S2-T8-2026-27)</th></tr></thead>
+<tbody>
+<tr><td class="k">Submitted proposal</td><td><code>submission/proposal_257_222_243_redacted.pdf</code></td></tr>
+<tr><td class="k">Progress report (due 22 Oct)</td><td><code>submission/main.tex</code>: abstract, introduction, literature review, proposed approach</td></tr>
+<tr><td class="k">Final report draft (due 2 Nov)</td><td><code>submission/final.tex</code>: adds implementation, results, conclusions</td></tr>
+<tr><td class="k">Results and analysis</td><td><code>research/results/stage2</code> to <code>stage4</code>: <code>analysis.md</code>, <code>summary.csv</code>, <code>convergence.md</code></td></tr>
+<tr><td class="k">Simulator code</td><td><code>build/scenario/extensions/</code> (C++ strategy, consumer, producer, loss model), <code>build/scenario/scenarios/tandem.cpp</code></td></tr>
+<tr><td class="k">Analysis code</td><td><code>build/analysis/</code> (Python), <code>build/retry_correlation_check.py</code> (closed forms)</td></tr>
+<tr><td class="k">MATLAB</td><td><code>build/matlab/</code>: model cross-check, report figures, trace replay. Written, not yet run in MATLAB Online.</td></tr>
+<tr><td class="k">Viva preparation</td><td><code>research/context/defence_pack.md</code></td></tr>
+</tbody></table></div>
+
+<footer>All figures come from the committed results in the project repository (stages 2 to 4). Simulator: ns-3 with ndnSIM 2.9 (NFD 22.02), debug build; means with 95% confidence intervals over at least 5 seeds.</footer>
+</main>
+</div>
+
+<script>
+(function () {
+  var NS = 'http://www.w3.org/2000/svg';
+
+  function el(tag, attrs, parent, text) {
+    var e = document.createElementNS(NS, tag);
+    for (var k in attrs) {
+      if (k === 'style') { for (var s in attrs.style) e.style[s] = attrs.style[s]; }
+      else e.setAttribute(k, attrs[k]);
+    }
+    if (text != null) e.textContent = text;
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+  function lin(d0, d1, r0, r1) { return function (v) { return r0 + (v - d0) / (d1 - d0) * (r1 - r0); }; }
+  function lg(d0, d1, r0, r1) {
+    var a = Math.log10(d0), b = Math.log10(d1);
+    return function (v) { return r0 + (Math.log10(Math.max(v, d0)) - a) / (b - a) * (r1 - r0); };
+  }
+  function fmt(v) {
+    if (v >= 1000) return v.toLocaleString('en-US', { maximumFractionDigits: 0 });
+    if (v >= 100) return v.toFixed(1);
+    if (v >= 10) return v.toFixed(2);
+    return v.toFixed(2);
+  }
+  function tickFmt(v) { return v >= 1000 ? v.toLocaleString('en-US') : String(v); }
+
+  function marker(svg, kind, x, y, color) {
+    var st = { fill: color, stroke: 'var(--surface)', strokeWidth: 1.5 };
+    if (kind === 'square') return el('rect', { x: x - 4.5, y: y - 4.5, width: 9, height: 9, style: st }, svg);
+    if (kind === 'tri') return el('path', { d: 'M' + x + ' ' + (y - 6) + 'L' + (x + 5.5) + ' ' + (y + 4) + 'L' + (x - 5.5) + ' ' + (y + 4) + 'Z', style: st }, svg);
+    if (kind === 'diamond') return el('path', { d: 'M' + x + ' ' + (y - 6) + 'L' + (x + 6) + ' ' + y + 'L' + x + ' ' + (y + 6) + 'L' + (x - 6) + ' ' + y + 'Z', style: st }, svg);
+    return el('circle', { cx: x, cy: y, r: 4.5, style: st }, svg);
+  }
+
+  function legend(host, series) {
+    var box = document.createElement('div');
+    box.className = 'legend';
+    series.forEach(function (s) {
+      var item = document.createElement('span');
+      var sw = document.createElement('i');
+      sw.style.borderTopColor = 'var(' + s.color + ')';
+      if (s.dash) sw.style.borderTopStyle = 'dashed';
+      item.appendChild(sw);
+      item.appendChild(document.createTextNode(s.name));
+      box.appendChild(item);
+    });
+    host.appendChild(box);
+  }
+
+  function tooltip(host, svg, pts) {
+    var tip = document.createElement('div');
+    tip.className = 'tip';
+    tip.hidden = true;
+    host.appendChild(tip);
+    svg.addEventListener('pointermove', function (ev) {
+      var r = svg.getBoundingClientRect();
+      var mx = ev.clientX - r.left, my = ev.clientY - r.top;
+      var best = null, bd = 30 * 30;
+      pts.forEach(function (p) {
+        var d = (p.px - mx) * (p.px - mx) + (p.py - my) * (p.py - my);
+        if (d < bd) { bd = d; best = p; }
+      });
+      if (!best) { tip.hidden = true; return; }
+      tip.innerHTML = best.html;
+      tip.hidden = false;
+      var hr = host.getBoundingClientRect();
+      var left = r.left - hr.left + best.px + 12, top = r.top - hr.top + best.py - 12;
+      if (left + tip.offsetWidth > host.clientWidth - 4) left = r.left - hr.left + best.px - tip.offsetWidth - 12;
+      if (top + tip.offsetHeight > host.clientHeight) top = host.clientHeight - tip.offsetHeight - 4;
+      tip.style.left = Math.max(4, left) + 'px';
+      tip.style.top = Math.max(4, top) + 'px';
+    });
+    svg.addEventListener('pointerleave', function () { tip.hidden = true; });
+  }
+
+  function frame(host, cfg) {
+    host.innerHTML = '';
+    var W = Math.max(300, host.clientWidth - 20), H = cfg.h || 300;
+    var m = { l: cfg.ml || 58, r: 14, t: 14, b: 46 };
+    var svg = el('svg', { width: W, height: H, viewBox: '0 0 ' + W + ' ' + H, role: 'img', 'aria-label': host.getAttribute('data-aria') || '' });
+    host.appendChild(svg);
+    var y = cfg.y.log ? lg(cfg.y.min, cfg.y.max, H - m.b, m.t) : lin(cfg.y.min, cfg.y.max, H - m.b, m.t);
+    cfg.y.ticks.forEach(function (t) {
+      el('line', { x1: m.l, x2: W - m.r, y1: y(t), y2: y(t), 'class': 'grid' }, svg);
+      el('text', { x: m.l - 8, y: y(t) + 4, 'text-anchor': 'end', 'class': 'tick' }, svg, tickFmt(t));
+    });
+    el('text', { x: 0, y: 0, transform: 'translate(14 ' + ((m.t + H - m.b) / 2) + ') rotate(-90)', 'text-anchor': 'middle', 'class': 'ax-label' }, svg, cfg.y.label);
+    el('text', { x: (m.l + W - m.r) / 2, y: H - 6, 'text-anchor': 'middle', 'class': 'ax-label' }, svg, cfg.x.label);
+    el('line', { x1: m.l, x2: W - m.r, y1: H - m.b, y2: H - m.b, 'class': 'axis' }, svg);
+    return { svg: svg, W: W, H: H, m: m, y: y };
+  }
+
+  function lineChart(host, cfg) {
+    var f = frame(host, cfg), svg = f.svg, m = f.m, y = f.y;
+    var x = cfg.x.log ? lg(cfg.x.min, cfg.x.max, m.l + 8, f.W - m.r - 8) : lin(cfg.x.min, cfg.x.max, m.l + 8, f.W - m.r - 8);
+    cfg.x.ticks.forEach(function (t) {
+      el('line', { x1: x(t), x2: x(t), y1: f.H - m.b, y2: f.H - m.b + 5, 'class': 'axis' }, svg);
+      el('text', { x: x(t), y: f.H - m.b + 19, 'text-anchor': 'middle', 'class': 'tick' }, svg, cfg.x.tf ? cfg.x.tf(t) : tickFmt(t));
+    });
+    if (cfg.diagonal) {
+      el('line', { x1: x(cfg.x.min), y1: y(cfg.x.min), x2: x(cfg.x.max), y2: y(cfg.x.max), 'class': 'axis', style: { strokeDasharray: '4 4' } }, svg);
+    }
+    var pts = [];
+    cfg.series.forEach(function (s) {
+      var color = 'var(' + s.color + ')';
+      if (s.line !== false) {
+        var d = s.pts.map(function (p, i) { return (i ? 'L' : 'M') + x(p[0]).toFixed(1) + ' ' + y(p[1]).toFixed(1); }).join('');
+        el('path', { d: d, fill: 'none', style: { stroke: color, strokeWidth: s.width || 2, strokeDasharray: s.dash ? '6 4' : '' } }, svg);
+      }
+      s.pts.forEach(function (p) {
+        if (p[2]) el('line', { x1: x(p[0]), x2: x(p[0]), y1: y(p[1] - p[2]), y2: y(p[1] + p[2]), style: { stroke: color, strokeWidth: 1.4 } }, svg);
+      });
+      s.pts.forEach(function (p) {
+        marker(svg, s.marker, x(p[0]), y(p[1]), color);
+        pts.push({ px: x(p[0]), py: y(p[1]), html: s.tip(p) });
+      });
+    });
+    tooltip(host, svg, pts);
+    legend(host, cfg.series);
+  }
+
+  function barChart(host, cfg) {
+    var f = frame(host, cfg), svg = f.svg, m = f.m, y = f.y;
+    var groups = cfg.groups, n = cfg.series.length;
+    var band = (f.W - m.l - m.r) / groups.length, bw = Math.min(54, band * 0.7 / n);
+    var pts = [];
+    groups.forEach(function (g, gi) {
+      var cx = m.l + band * (gi + 0.5);
+      el('text', { x: cx, y: f.H - m.b + 19, 'text-anchor': 'middle', 'class': 'tick' }, svg, g);
+      cfg.series.forEach(function (s, si) {
+        var v = s.vals[gi], ci = s.ci ? s.ci[gi] : 0;
+        var bx = cx + (si - n / 2) * (bw + 4) + 2;
+        var color = 'var(' + s.color + ')';
+        el('rect', { x: bx, y: y(v), width: bw, height: Math.max(1, f.H - m.b - y(v)), rx: 3, style: { fill: color } }, svg);
+        if (ci) el('line', { x1: bx + bw / 2, x2: bx + bw / 2, y1: y(v - ci), y2: y(v + ci), style: { stroke: 'var(--fg)', strokeWidth: 1.4 } }, svg);
+        el('text', { x: bx + bw / 2, y: y(v + ci) - 6, 'text-anchor': 'middle', 'class': 'vlabel' }, svg, fmt(v) + ' ms');
+        pts.push({ px: bx + bw / 2, py: y(v), html: '<strong>' + s.name + '</strong><br>' + g + ': ' + fmt(v) + ' ms' + (ci ? ' ± ' + fmt(ci) : '') });
+      });
+    });
+    tooltip(host, svg, pts);
+    legend(host, cfg.series);
+  }
+
+  var LOAD = [0, 0.3, 0.6, 0.8, 0.9, 0.95];
+  var LOSS = [0, 1, 5, 10];
+  var bestLoadAlpha = [0.1, 0.1, 0.1, 0.1, 0.1, 1.0];
+  var bestLossAlpha = [0.1, 0.1, 0.9, 0.7];
+  function zip(xs, ys, cis) { return xs.map(function (x, i) { return [x, ys[i], cis[i], i]; }); }
+  function msTip(name, xname, unit, extra) {
+    return function (p) {
+      return '<strong>' + name + '</strong><br>' + xname + ' ' + p[0] + unit + ': ' + fmt(p[1]) + ' ± ' + fmt(p[2]) + ' ms' + (extra ? extra(p) : '');
+    };
+  }
+
+  var CHARTS = {
+    'ch-gap': function (h) {
+      barChart(h, {
+        h: 300,
+        groups: ['α = 0.1', 'α = 0.5', 'α = 0.9'],
+        y: { log: true, min: 1, max: 40000, ticks: [1, 10, 100, 1000, 10000], label: 'Mean delay (ms, log scale)' },
+        x: { label: 'Answer probability α, threshold s = 1' },
+        series: [
+          { name: "Base paper's model (contents redrawn)", color: '--c-model', vals: [9.96, 45.97, 80.62] },
+          { name: 'ns-3, contents persist (real caches)', color: '--c-blind', vals: [10.10, 103.60, 14521.56], ci: [0.39, 6.07, 2069.77] }
+        ]
+      });
+    },
+    'ch-valid': function (h) {
+      var att = [[5.28, 5.306, 0.135, 'α 0.1, s 0.90'], [6.51, 6.640, 0.212, 'α 0.1, s 0.95'], [9.96, 9.968, 0.176, 'α 0.1, s 1.00'],
+                 [2.99, 2.932, 0.114, 'α 0.5, s 0.90'], [7.00, 6.735, 0.316, 'α 0.5, s 0.95'], [45.97, 47.50, 2.60, 'α 0.5, s 1.00'],
+                 [1.72, 1.623, 0.182, 'α 0.9, s 0.90'], [6.38, 6.676, 0.492, 'α 0.9, s 0.95'], [80.62, 81.59, 3.57, 'α 0.9, s 1.00']];
+      var per = [[5.33, 5.322, 0.212, 'α 0.1, s 0.90'], [6.65, 6.638, 0.190, 'α 0.1, s 0.95'], [10.05, 10.101, 0.390, 'α 0.1, s 1.00'],
+                 [4.22, 4.249, 0.485, 'α 0.5, s 0.90'], [13.91, 13.42, 1.19, 'α 0.5, s 0.95'], [97.77, 103.60, 6.07, 'α 0.5, s 1.00'],
+                 [54.02, 40.73, 17.24, 'α 0.9, s 0.90'], [755.96, 896.07, 455.14, 'α 0.9, s 0.95'], [13709.01, 14521.56, 2069.77, 'α 0.9, s 1.00']];
+      function tip(kind) {
+        return function (p) { return '<strong>' + p[3] + '</strong> · ' + kind + '<br>ns-3: ' + fmt(p[1]) + ' ± ' + fmt(p[2]) + ' ms<br>analytical: ' + fmt(p[0]) + ' ms'; };
+      }
+      lineChart(h, {
+        h: 340, diagonal: true,
+        x: { log: true, min: 1, max: 30000, ticks: [1, 10, 100, 1000, 10000], label: 'Analytical mean delay (ms, log scale)' },
+        y: { log: true, min: 1, max: 30000, ticks: [1, 10, 100, 1000, 10000], label: 'ns-3 mean delay (ms, log)' },
+        series: [
+          { name: "Contents redrawn every attempt (paper's model)", color: '--c-model', marker: 'circle', line: false, pts: att, tip: tip('contents redrawn') },
+          { name: 'Contents persist (exact expectation)', color: '--c-blind', marker: 'square', line: false, pts: per, tip: tip('contents persist') }
+        ]
+      });
+    },
+    'ch-load': function (h) {
+      lineChart(h, {
+        h: 320,
+        x: { min: 0, max: 0.95, ticks: [0, 0.3, 0.6, 0.8, 0.9, 0.95], label: 'Offered cross-traffic load on the 2 Mbps backhaul', tf: function (t) { return String(t); } },
+        y: { min: 0, max: 60, ticks: [0, 10, 20, 30, 40, 50, 60], label: 'Mean delay (ms)' },
+        series: [
+          { name: 'Blind α = 0.5 (base paper)', color: '--c-blind', marker: 'tri', pts: zip(LOAD, [38.13, 38.52, 39.42, 41.15, 44.70, 51.86], [3.47, 3.44, 3.44, 3.38, 2.98, 4.59]), tip: msTip('Blind α = 0.5', 'load', '') },
+          { name: 'Best fixed α (exclusion, after the fact)', color: '--c-excl', marker: 'diamond', pts: zip(LOAD, [7.78, 8.50, 9.86, 12.50, 16.80, 22.12], [0.21, 0.20, 0.20, 0.38, 0.69, 1.50]), tip: msTip('Best fixed α', 'load', '', function (p) { return '<br>(exclusion α = ' + bestLoadAlpha[p[3]] + ')'; }) },
+          { name: 'Delay-aware (ours)', color: '--c-aware', marker: 'circle', width: 3, pts: zip(LOAD, [5.02, 5.60, 6.89, 8.74, 11.15, 15.10], [0.16, 0.23, 0.21, 0.44, 0.65, 0.55]), tip: msTip('Delay-aware (ours)', 'load', '') },
+          { name: 'Oracle: s in the Interest', color: '--c-oracle', marker: 'square', dash: true, pts: zip(LOAD, [2.24, 2.49, 3.03, 3.95, 5.34, 7.41], [0.13, 0.13, 0.19, 0.29, 0.47, 0.78]), tip: msTip('Oracle', 'load', '') }
+        ]
+      });
+    },
+    'ch-loss': function (h) {
+      lineChart(h, {
+        h: 320,
+        x: { min: 0, max: 10, ticks: [0, 1, 5, 10], label: 'Mean loss per link (%)', tf: function (t) { return t + '%'; } },
+        y: { log: true, min: 1, max: 600, ticks: [1, 3, 10, 30, 100, 300], label: 'Mean delay (ms, log scale)' },
+        series: [
+          { name: 'Blind α = 0.5 (base paper)', color: '--c-blind', marker: 'tri', pts: zip(LOSS, [38.13, 57.86, 169.02, 371.89], [3.47, 3.35, 18.58, 37.47]), tip: msTip('Blind α = 0.5', 'loss', '%') },
+          { name: 'Best fixed α (exclusion, after the fact)', color: '--c-excl', marker: 'diamond', pts: zip(LOSS, [7.78, 19.57, 59.23, 136.08], [0.21, 4.46, 10.20, 15.61]), tip: msTip('Best fixed α', 'loss', '%', function (p) { return '<br>(exclusion α = ' + bestLossAlpha[p[3]] + ')'; }) },
+          { name: 'Delay-aware (ours)', color: '--c-aware', marker: 'circle', width: 3, pts: zip(LOSS, [5.02, 13.78, 48.32, 115.30], [0.16, 4.16, 11.76, 12.61]), tip: msTip('Delay-aware (ours)', 'loss', '%') },
+          { name: 'Oracle: s in the Interest', color: '--c-oracle', marker: 'square', dash: true, pts: zip(LOSS, [2.24, 6.50, 26.10, 61.82], [0.13, 1.84, 7.81, 9.55]), tip: msTip('Oracle', 'loss', '%') }
+        ]
+      });
+    }
+  };
+
+  function renderAll() {
+    Object.keys(CHARTS).forEach(function (id) {
+      var host = document.getElementById(id);
+      if (host) CHARTS[id](host);
+    });
+  }
+  renderAll();
+  var lastW = window.innerWidth, timer = null;
+  window.addEventListener('resize', function () {
+    if (window.innerWidth === lastW) return;
+    lastW = window.innerWidth;
+    clearTimeout(timer);
+    timer = setTimeout(renderAll, 150);
+  });
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(renderAll);
+})();
+</script>
+
+</body>
+</html>

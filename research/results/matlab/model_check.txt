@@ -1,0 +1,75 @@
+MATLAB cross-check of the closed-form delay models (build/matlab/delay_models.m)
+Run in MATLAB Online on 20 Oct 2026 against research/results/stage2/summary.csv and stage3/summary.csv.
+Independent re-implementation of build/retry_correlation_check.py; output pasted from the Command Window.
+
+== A. Paper's model (contents redrawn every attempt) vs. contents that persist
+alpha     s |   model ms   persist ms    ratio
+  0.1  0.90 |       5.28         5.33     1.01
+  0.1  0.95 |       6.51         6.64     1.02
+  0.1  1.00 |       9.96        10.05     1.01
+  0.5  0.90 |       2.99         4.22     1.41
+  0.5  0.95 |       7.00        13.86     1.98
+  0.5  1.00 |      45.97        97.84     2.13
+  0.9  0.90 |       1.72       105.92    61.75
+  0.9  0.95 |       6.38      3020.23   473.26
+  0.9  1.00 |      80.62    137514.72  1705.73
+
+== B. Stage 3 expectations (ms), contents persist, blind capped at 5000 attempts
+alpha     s |    blind cap    threshold    thr persist    exclusion
+  0.1  0.90 |         5.33       4.8799         4.8799       5.2868
+  0.1  0.95 |         6.64       5.1857         5.1857       6.4988
+  0.1  1.00 |        10.05       5.8614         5.8614       9.5427
+  0.5  0.90 |         4.22       1.9583         1.9583       3.1112
+  0.5  0.95 |        13.86       2.7879         2.7879       7.1725
+  0.5  1.00 |        97.84       5.3340         5.3340      24.4584
+  0.9  0.90 |        53.59       0.5228         0.5228       1.9565
+  0.9  0.95 |       755.40       1.3490         1.3490       7.0162
+  0.9  1.00 |     13718.31       4.8475         4.8475      32.8593
+  1.0  0.90 |      6372.78       0.2895         0.2895       1.7772
+  1.0  0.95 |     19064.22       1.0887         1.0887       6.9745
+  1.0  1.00 |     44991.00       4.7319         4.7319      33.9563
+Eq. (8) closed form vs. exact persistent enumeration: max |diff| = 4.80e-14 ms
+
+== C. MATLAB vs. Python expected_ms
+stage2 per-attempt (paper's model, CSV rounded to 0.01 ms): max |diff| = 0.0048 ms  PASS
+stage2 per-request: the CSV holds an 800-configuration Monte Carlo; exact enumeration:
+   alpha 0.1  s 0.90   Monte Carlo       5.33   exact       5.33   (+0.0%)
+   alpha 0.1  s 0.95   Monte Carlo       6.65   exact       6.64   (+0.1%)
+   alpha 0.1  s 0.99   Monte Carlo      10.05   exact      10.05   (+0.0%)
+   alpha 0.1  s 1.00   Monte Carlo      10.05   exact      10.05   (+0.0%)
+   alpha 0.5  s 0.90   Monte Carlo       4.22   exact       4.22   (+0.1%)
+   alpha 0.5  s 0.95   Monte Carlo      13.91   exact      13.86   (+0.4%)
+   alpha 0.5  s 0.99   Monte Carlo      97.77   exact      97.84   (-0.1%)
+   alpha 0.5  s 1.00   Monte Carlo      97.77   exact      97.84   (-0.1%)
+   alpha 0.9  s 0.90   Monte Carlo      54.02   exact      53.59   (+0.8%)
+   alpha 0.9  s 0.95   Monte Carlo     755.96   exact     755.40   (+0.1%)
+   alpha 0.9  s 0.99   Monte Carlo   13709.01   exact   13718.31   (-0.1%)
+   alpha 0.9  s 1.00   Monte Carlo   13709.01   exact   13718.31   (-0.1%)
+stage3 blind     (24 cells): max relative diff = 8.00e-12  PASS
+stage3 threshold (24 cells): max relative diff = 8.16e-15  PASS
+stage3 exclusion (24 cells): max relative diff = 1.71e-14  PASS
+
+== D. ns-3 mean within its 95% CI of the MATLAB expectation
+stage2 per-attempt   12 of 12 cells inside the CI
+stage2 per-request   12 of 12 cells inside the CI
+stage3 blind         24 of 24 cells inside the CI
+stage3 threshold     24 of 24 cells inside the CI
+stage3 exclusion     22 of 24 cells inside the CI
+(for C = 100, s = 0.99 and s = 1.0 are the same cell, so stage 2 counts each twice)
+
+== E. Threshold mode, alpha = 0.05 ... 1
+s = 0.90: 5.4153 ms at alpha 0.05 -> 0.2895 ms at alpha 1, strictly decreasing: PASS
+s = 0.95: 5.5802 ms at alpha 0.05 -> 1.0887 ms at alpha 1, strictly decreasing: PASS
+s = 1.00: 5.9303 ms at alpha 0.05 -> 4.7319 ms at alpha 1, strictly decreasing: PASS
+
+All checks: PASS
+
+== trace_replay.m, same session: share of snapshots after warm-up with s* below 0.5 (all runs)
+  load     v1     v2     v3     v4     v5
+  0.00     0%     0%     0%     0%     0%
+  0.30     0%     0%     0%     0%     0%
+  0.60     0%     0%     0%     0%     0%
+  0.80     0%     0%     0%     0%     0%
+  0.90     1%     1%     1%     4%     8%
+  0.95     7%     5%     7%     8%    20%
+(identical to the last table of research/results/stage4/convergence.md)

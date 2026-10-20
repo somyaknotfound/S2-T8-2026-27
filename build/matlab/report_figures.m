@@ -1,8 +1,9 @@
 % report_figures.m - the report's result figures, redrawn in MATLAB from the committed summaries.
 %
-% MATLAB Online: upload these files next to this script (rename as shown), then run
-% report_figures. Vector PDFs and 200-dpi PNGs go to ./matlab_figures/; copy that folder's
-% contents to submission/figures/matlab/ in the repo.
+% MATLAB Online: run report_figures from a folder holding either the repository's results
+% folders as they are (stage2/, stage3/, stage4/, directly or under results/ or
+% research/results/) or these renamed copies. Vector PDFs and 200-dpi PNGs go to
+% ./matlab_figures/; copy that folder's contents to submission/figures/matlab/ in the repo.
 %   stage2_summary.csv   <- research/results/stage2/summary.csv
 %   stage3_summary.csv   <- research/results/stage3/summary.csv
 %   stage4_summary.csv   <- research/results/stage4/summary.csv
@@ -137,11 +138,13 @@ for j = 1:numel(S)
          'Color', c, 'LineWidth', 1, 'HandleVisibility', 'off');
 end
 style_axes(ax, K, 'linear');
+xlim(ax, [0 1.04]);
 xlabel(ax, 'Answer probability \alpha');
 ylabel(ax, 'Mean delay, threshold mode (ms)');
 title(ax, {'Threshold mode: delay falls monotonically to \alpha = 1', ...
            '(dashed = Eq. 8, exact)'}, 'FontWeight', 'normal', 'FontSize', 9);
-legend(ax, 'Location', 'northeast', 'FontSize', 7);
+% the curves fall from top left to bottom right, so the lower left is empty
+legend(ax, 'Location', 'southwest', 'FontSize', 7);
 save_figure(fig, OUT, 'stage3_threshold_alpha');
 end
 
@@ -350,7 +353,7 @@ end
 
 function T = load_csv(name)
 % The summaries write "nan" for missing values and True/False flags; keep numbers numeric.
-T = readtable(name, 'TextType', 'string', 'Delimiter', ',');
+T = readtable(find_csv(name), 'TextType', 'string', 'Delimiter', ',');
 for v = string(T.Properties.VariableNames)
     if isstring(T.(v))
         x = str2double(T.(v));
@@ -359,4 +362,31 @@ for v = string(T.Properties.VariableNames)
         end
     end
 end
+end
+
+function path = find_csv(name)
+% 'stageN_<file>.csv' as a renamed upload, or the repository's own layout stageN/<file>.csv,
+% directly, under results/ or under research/results/, from the current folder or this
+% script's folder. A renamed copy anywhere on the MATLAB path is found too.
+parts = split(string(name), '_');
+stage = parts(1);
+file = strjoin(parts(2:end), '_');
+for root = [string(pwd), string(fileparts(mfilename('fullpath')))]
+    for sub = ["", "results", fullfile("research", "results")]
+        for candidate = [fullfile(root, sub, name), fullfile(root, sub, stage, file)]
+            if isfile(candidate)
+                path = candidate;
+                return
+            end
+        end
+    end
+end
+onpath = which(name);
+if ~isempty(onpath)
+    path = string(onpath);
+    return
+end
+error(['Cannot find %s. Upload the repository''s research/results folder with its stage ', ...
+       'subfolders (it needs %s/%s), or a copy of that file renamed to %s, then run the ', ...
+       'script from the folder that holds it. Current folder: %s'], name, stage, file, name, pwd);
 end
