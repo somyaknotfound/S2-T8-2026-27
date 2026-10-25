@@ -44,10 +44,14 @@ def expected_delay(ok, bad, cap=None):
     receipt of the last rejected answer, i.e. (cap - 1) * (d_bad + delta) + d_bad.
     """
     rho = sum(p for _, p in ok)
-    d_ok = sum(t * p for t, p in ok) / rho
     fail = sum(p for _, p in bad)
     d_bad = sum(t * p for t, p in bad) / fail if fail > 0 else 0.0
     retry = d_bad + DELTA
+    if rho <= 0:
+        # No attempt can ever succeed (alpha = 1 and nothing acceptable in reach): every attempt
+        # is rejected. Uncapped the delay is unbounded; capped it is the cap's cost.
+        return float("inf") if cap is None else (cap - 1) * retry + d_bad
+    d_ok = sum(t * p for t, p in ok) / rho
     if cap is None:
         return d_ok + (1 / rho - 1) * retry
 
